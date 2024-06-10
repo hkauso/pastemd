@@ -21,10 +21,10 @@ pub struct PasteCreate {
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PasteReturn {
-    url:            String,
-    content:        String,
-    date_published: u64,
-    date_edited:    u64
+    pub url:            String,
+    pub content:        String,
+    pub date_published: u64,
+    pub date_edited:    u64
 }
 pub enum PasteError {
     AlreadyExists,

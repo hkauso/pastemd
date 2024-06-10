@@ -15,7 +15,9 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(pages::root))
-        .nest("/api", api::routes(manager.clone()));
+        .merge(pages::routes(manager.clone()))
+        .nest("/api", api::routes(manager.clone()))
+        .fallback(pages::not_found_handler);
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{PORT}")).await.unwrap();
 
     println!("Starting server at http://localhost:{PORT}!");
