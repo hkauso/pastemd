@@ -19,7 +19,11 @@ async fn create_paste(
     State(manager): State<PasteManager>,
     Json(paste_to_create): Json<PasteCreate>,
 ) -> Result<(), PasteError> {
-    manager.create_paste(paste_to_create).await
+    let res = manager.create_paste(paste_to_create).await;
+    match res {
+        Ok(_)  => Ok(()),
+        Err(e) => Err(e)
+    }
 }
 
 async fn delete_paste_by_url(
@@ -33,7 +37,7 @@ async fn delete_paste_by_url(
 }
 
 #[debug_handler]
-async fn get_paste_by_url(
+pub async fn get_paste_by_url(
     State(manager): State<PasteManager>,
     Path(url): Path<String>,
 ) -> Result<Json<PasteReturn>, PasteError> {
