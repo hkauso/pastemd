@@ -1,12 +1,5 @@
-use pasties::{
-    routing::api, 
-    routing::pages,
-    model::PasteManager
-};
-use axum::{
-    Router, 
-    routing::get,
-};
+use axum::{routing::get, Router};
+use pasties::{model::PasteManager, routing::api, routing::pages};
 #[tokio::main]
 async fn main() {
     const PORT: u16 = 7878;
@@ -16,7 +9,9 @@ async fn main() {
     let app = Router::new()
         .route("/", get(pages::root))
         .nest("/api", api::routes(manager.clone()));
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{PORT}")).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{PORT}"))
+        .await
+        .unwrap();
 
     println!("Starting server at http://localhost:{PORT}!");
     axum::serve(listener, app).await.unwrap();
