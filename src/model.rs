@@ -1,6 +1,10 @@
 //! `model` manages the CRUD loop for pastes
-use std::sync::{Arc, Mutex};
-use axum::{http::StatusCode, response::{IntoResponse, Response}};
+// TODO: rename PasteCreate to PasteCreationRequest
+use std::sync::{Arc, Mutex}; // This is only for the temporary mock storage replacing a proper database implementation
+use axum::{
+    http::StatusCode, 
+    response::{IntoResponse, Response}
+};
 use serde::{Serialize, Deserialize};
 use crate::utility::unix_timestamp;
 

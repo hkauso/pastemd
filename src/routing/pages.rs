@@ -1,11 +1,24 @@
+//! `routing::pages` responds to requests that should return rendered HTML to the client
 use askama_axum::Template;
-use axum::{extract::{Path, State}, response::{IntoResponse, Html}, routing::get, Router};
-use crate::model::{self, PasteError, PasteManager, PasteReturn};
+use axum::{
+    extract::{Path, State}, 
+    response::{IntoResponse, Html}, 
+    routing::{
+        get,
+        get_service
+    }, 
+    Router};
+use tower_http::services::ServeDir;
+use crate::model::{
+    PasteManager, 
+    PasteReturn
+};
 
 // `routing::pages` manages the frontend displaying of requested data
 pub fn routes(manager: PasteManager) -> Router {
     Router::new()
         .route("/:url", get(view_paste_by_url))
+        .nest_service("/assets", get_service(ServeDir::new("./assets")))
         .with_state(manager)
 }
 pub async fn root() -> &'static str {
@@ -21,6 +34,8 @@ struct PasteView {
     paste:   PasteReturn,
 }
 
+//TODO: make an error page; handle askama errors gracefully instead of unwrapping
+
 // #[derive(Template)]
 // #[template(path = "error.html")]
 // struct ErrorView {
@@ -28,7 +43,6 @@ struct PasteView {
 //     error:   PasteError,
 // }
 
-// TODO: handle askama errors gracefully
 pub async fn view_paste_by_url(
     Path(url): Path<String>, 
     State(manager): State<PasteManager>
