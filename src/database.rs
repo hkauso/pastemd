@@ -1,121 +1,142 @@
-use crate::model::PasteError;
-use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use crate::model::{PasteCreate, PasteError, Paste};
+
+use dorsal::utility;
+use dorsal::query as sqlquery;
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
 /// Database connector
-pub struct Database {}
+#[derive(Clone)]
+pub struct Database {
+    pub base: dorsal::StarterDatabase,
+}
 
 impl Database {
-    pub fn init() -> Connection {
-        let conn = Connection::open("main.db").unwrap();
-        let table_result = conn.execute(
-            "create table if not exists pastes (
-                 id             integer primary key,
-                 url            text,
-                 password       text,
-                 content        text,
-                 date_published text,
-                 date_edited    text
+    pub async fn new(opts: dorsal::DatabaseOpts) -> Self {
+        Self {
+            base: dorsal::StarterDatabase::new(opts).await,
+        }
+    }
+
+    /// Init database
+    pub async fn init(&self) {
+        // create tables
+        let c = &self.base.db.client;
+
+        let _ = sqlquery(
+            "CREATE TABLE IF NOT EXISTS \"pastes\" (
+                 id             TEXT,
+                 url            TEXT,
+                 password       TEXT,
+                 content        TEXT,
+                 date_published TEXT,
+                 date_edited    TEXT
              )",
-            (),
-        );
-        match table_result {
-            Ok(_) => println!("Successfully connected to table."),
-            Err(e) => panic!("Database creation failed with error message: {e}"),
+        )
+        .execute(c)
+        .await;
+    }
+
+    // ...
+
+    /// Get an existing paste by `url`
+    ///
+    /// ## Arguments:
+    /// * `url` - [`String`] of the paste's `url` field
+    pub async fn get_paste_by_url(&self, url: String) -> Result<Paste> {
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "SELECT * FROM \"pastes\" WHERE \"url\" = ?"
+        } else {
+            "SELECT * FROM \"pastes\" WHERE \"url\" = $1"
         };
-        conn
-    }
-}
 
-/// Client manager for the database
-///
-/// Currently this is unused, and will stay so until the model and api are finished and I can transition from the PasteManager's mock storage to an actual database
-#[derive(Clone)]
-pub struct ClientManager<T> {
-    /// Temporary store, it's labeled "pool" but is not currently a pool
-    pool: ConnectionPool<T>,
-}
-
-type ConnectionPool<T> = Arc<Mutex<Vec<T>>>;
-
-impl<T: std::ops::Index<String, Output = String> + Clone> ClientManager<T> {
-    /// Create new [`Client`]
-    pub fn new(pool: ConnectionPool<T>) -> Self {
-        Self { pool }
-    }
-
-    // This is not needed when replaced with SQL methods
-    pub fn len(&self) -> usize {
-        // obtain client from pool
-        let client = self.pool.lock().unwrap();
+        let c = &self.base.db.client;
+        let res = match sqlquery(query)
+            .bind::<&String>(&url.to_lowercase())
+            .fetch_one(c)
+            .await
+        {
+            Ok(p) => self.base.textify_row(p).data,
+            Err(_) => return Err(PasteError::NotFound),
+        };
 
         // return
-        client.len()
+        // TODO: cache original result (res)
+        let paste = Paste {
+            id: res.get("id").unwrap().to_string(),
+            url: res.get("url").unwrap().to_string(),
+            content: res.get("content").unwrap().to_string(),
+            password: res.get("password").unwrap().to_string(),
+            date_published: res.get("date_published").unwrap().parse::<u64>().unwrap(),
+            date_edited: res.get("date_edited").unwrap().parse::<u64>().unwrap(),
+        };
+
+        Ok(paste)
     }
 
-    // functions below should be altered when proper database support is added
-    // we only really need to select one thing at a time since the api is pretty basic,
-    // so these functions only do what is needed ... optionally this could all be replaced
-    // with a `run_query` function (or something)
-
-    /// Select by a given `field`
+    /// Get an existing paste by `url`
     ///
     /// ## Arguments:
-    /// * `field` - the field we are selecting by
-    /// * `equals` - what the field value needs to equal
-    pub fn select_single(&self, field: String, equals: &str) -> Result<T> {
-        // obtain client from pool
-        let client = self.pool.lock().unwrap();
-
-        // select
-        // (replace with sql "SELECT FROM ... WHERE ... LIMIT 1", this just implements a basic version)
-        let entry = client.iter().clone().find(|r| r[field.clone()] == equals);
-
-        match entry {
-            // we need T to impl Clone so we can do this
-            Some(r) => Ok((*r).to_owned()),
-            None => Err(PasteError::NotFound),
-        }
-    }
-
-    /// Insert `T`
-    ///
-    /// ## Arguments:
-    /// * `value`: `T`
-    pub fn insert_row(&self, value: T) -> Result<()> {
-        // obtain client from pool
-        let mut client = self.pool.lock().unwrap();
-
-        // push and return
-        client.push(value);
-        Ok(())
-    }
-
-    /// Remove row by `field`
-    ///
-    /// ## Arguments:
-    /// * `field` - the field we are selecting by
-    /// * `equals` - what the field value needs to equal
-    pub fn remove_single(&self, field: String, equals: &str) -> Result<()> {
-        // obtain client from pool
-        let mut client = self.pool.lock().unwrap();
-
-        // remove
-        // (replace with sql "REMOVE FROM ... WHERE ... LIMIT 1", this just implements a basic version)
-
-        // this is very bad and only for testing, it'll go through everything to find what we want
-        for (i, row) in client.clone().iter().enumerate() {
-            if row[field.clone()] != equals {
-                continue;
-            }
-
-            client.remove(i);
-            break;
+    /// * `props` - [`PasteCreate`]   
+    pub async fn create_paste(&self, props: PasteCreate) -> Result<()> {
+        // make sure paste doesn't already exist
+        if let Ok(_) = self.get_paste_by_url(props.url.clone()).await {
+            return Err(PasteError::AlreadyExists);
         }
 
-        // return
-        Ok(())
+        // TODO: check url length, content length, etc
+
+        // create paste
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "INSERT INTO \"pastes\" VALUES (?, ?, ?, ?, ?, ?)"
+        } else {
+            "INSERT INTO \"pastes\" VALEUS ($1, $2, $3, $4, $5, $6)"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(&utility::random_id())
+            .bind::<&String>(&props.url)
+            .bind::<&String>(&utility::hash(props.password))
+            .bind::<&String>(&props.content)
+            .bind::<&String>(&crate::utility::unix_timestamp().to_string())
+            .bind::<&String>(&crate::utility::unix_timestamp().to_string())
+            .execute(c)
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Get an existing paste by `url`
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste to delete
+    /// * `password` - the paste's edit password
+    pub async fn delete_paste(&self, url: String, password: String) -> Result<()> {
+        // get paste
+        let existing = match self.get_paste_by_url(url.clone()).await {
+            Ok(p) => p,
+            Err(err) => return Err(err),
+        };
+
+        // check password
+        if utility::hash(password) != existing.password {
+            return Err(PasteError::PasswordIncorrect);
+        }
+
+        // create paste
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "DELETE FROM \"pastes\" WHERE \"url\" = ?"
+        } else {
+            "DELETE FROM \"pastes\" WHERE \"url\" = $1"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query).bind::<&String>(&url).execute(c).await {
+            Ok(_) => return Ok(()),
+            Err(_) => return Err(PasteError::Other),
+        };
     }
 }

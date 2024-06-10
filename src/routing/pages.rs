@@ -1,18 +1,13 @@
 //! `routing::pages` responds to requests that should return rendered HTML to the client
 use askama_axum::Template;
 use axum::{
-    extract::{Path, State}, 
-    response::{IntoResponse, Html}, 
-    routing::{
-        get,
-        get_service
-    }, 
-    Router};
-use tower_http::services::ServeDir;
-use crate::model::{
-    PasteManager, 
-    PasteReturn
+    extract::{Path, State},
+    response::{IntoResponse, Html},
+    routing::{get, get_service},
+    Router,
 };
+use tower_http::services::ServeDir;
+use crate::model::{PasteManager, Paste};
 
 // `routing::pages` manages the frontend displaying of requested data
 pub fn routes(manager: PasteManager) -> Router {
@@ -30,8 +25,8 @@ pub async fn not_found_handler() -> &'static str {
 #[derive(Template)]
 #[template(path = "paste.html")]
 struct PasteView {
-    title:   String,
-    paste:   PasteReturn,
+    title: String,
+    paste: Paste,
 }
 
 //TODO: make an error page; handle askama errors gracefully instead of unwrapping
@@ -44,29 +39,30 @@ struct PasteView {
 // }
 
 pub async fn view_paste_by_url(
-    Path(url): Path<String>, 
-    State(manager): State<PasteManager>
+    Path(url): Path<String>,
+    State(manager): State<PasteManager>,
 ) -> impl IntoResponse {
     match manager.get_paste_by_url(url).await {
         Ok(p) => {
             let paste_render = PasteView {
                 title: p.url.to_string(),
-                paste: p
+                paste: p,
             };
             Html(paste_render.render().unwrap())
-        },
-        Err(e) => {
+        }
+        Err(_) => {
             let paste_render = PasteView {
                 title: "error".to_string(),
-                paste: PasteReturn {
+                paste: Paste {
+                    id: "error".to_string(),
                     url: "error".to_string(),
                     content: "error".to_string(),
+                    password: "error".to_string(),
                     date_published: 0,
-                    date_edited: 0
-                }
+                    date_edited: 0,
+                },
             };
             Html(paste_render.render().unwrap())
         }
     }
-
 }
