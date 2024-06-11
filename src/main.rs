@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use pasties::{model::PasteManager, routing::api, routing::pages, DatabaseOpts};
+use pasties::{routing::api, routing::pages, DatabaseOpts, database::Database};
 use std::env;
 
 #[tokio::main]
@@ -7,7 +7,7 @@ async fn main() {
     dotenv::dotenv().ok();
     const PORT: u16 = 7878;
 
-    let manager = PasteManager::init(DatabaseOpts {
+    let manager = Database::new(DatabaseOpts {
         // dorsal expects "_type" and "host" to be Option but "env::var" gives Result...
         // we just need to convert the result to an option
         _type: match env::var("DB_TYPE") {
@@ -23,6 +23,8 @@ async fn main() {
         name: env::var("DB_NAME").unwrap_or(String::new()),
     })
     .await;
+
+    manager.init().await;
 
     let app = Router::new()
         .route("/", get(pages::root))

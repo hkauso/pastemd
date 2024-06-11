@@ -114,7 +114,7 @@ impl Database {
     /// ## Arguments:
     /// * `url` - the paste to delete
     /// * `password` - the paste's edit password
-    pub async fn delete_paste(&self, url: String, password: String) -> Result<()> {
+    pub async fn delete_paste_by_url(&self, url: String, password: String) -> Result<()> {
         // get paste
         let existing = match self.get_paste_by_url(url.clone()).await {
             Ok(p) => p,
@@ -135,6 +135,48 @@ impl Database {
 
         let c = &self.base.db.client;
         match sqlquery(query).bind::<&String>(&url).execute(c).await {
+            Ok(_) => return Ok(()),
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Get an existing paste by `url`
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste to delete
+    /// * `password` - the paste's edit password
+    /// * `new_content` - the new content of the past
+    pub async fn edit_paste_by_url(
+        &self,
+        url: String,
+        password: String,
+        new_content: String,
+    ) -> Result<()> {
+        // get paste
+        let existing = match self.get_paste_by_url(url.clone()).await {
+            Ok(p) => p,
+            Err(err) => return Err(err),
+        };
+
+        // check password
+        if utility::hash(password) != existing.password {
+            return Err(PasteError::PasswordIncorrect);
+        }
+
+        // create paste
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \"pastes\" SET \"content\" = ? WHERE \"url\" = ?"
+        } else {
+            "UPDATE \"pastes\" SET (\"content\" = $1) WHERE \"url\" = $2"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(&new_content)
+            .bind::<&String>(&url)
+            .execute(c)
+            .await
+        {
             Ok(_) => return Ok(()),
             Err(_) => return Err(PasteError::Other),
         };

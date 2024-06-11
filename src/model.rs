@@ -1,5 +1,3 @@
-//! `model` manages the CRUD loop for pastes
-use crate::database::Database;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -26,6 +24,12 @@ pub struct PasteCreate {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PasteDelete {
     pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PasteEdit {
+    pub password: String,
+    pub new_content: String,
 }
 
 pub enum PasteError {
@@ -58,47 +62,5 @@ impl IntoResponse for PasteError {
             )
                 .into_response(),
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct PasteManager {
-    db: Database,
-}
-
-/// CRUD manager for pastes
-///
-/// TODO: use an actual database instead of in-memory `Arc<Mutex<Vec<Paste>>>`
-impl PasteManager {
-    /// Returns a new instance of `PasteManager`
-    pub async fn init(opts: dorsal::DatabaseOpts) -> Self {
-        let db = Database::new(opts).await;
-        db.init().await;
-        Self { db }
-    }
-
-    /// Creates a new `Paste` from the input `PasteCreate`
-    ///
-    /// **Returns:** `Result<(), PasteError>`
-    pub async fn create_paste(&self, paste: PasteCreate) -> Result<(), PasteError> {
-        self.db.create_paste(paste).await
-    }
-
-    /// Retrieves a `Paste` from `PasteManager` by its `url`
-    ///
-    /// **Returns:** `Option<PasteReturn>`, where `None` signifies that the paste has not been found
-    pub async fn get_paste_by_url(&self, paste_url: String) -> Result<Paste, PasteError> {
-        self.db.get_paste_by_url(paste_url).await
-    }
-
-    /// Removes a `Paste` from `PasteManager` by its `url`
-    ///
-    /// **Returns:** `Option<PasteReturn>`, where `None` signifies that the paste has not been found
-    pub async fn delete_paste_by_url(
-        &self,
-        paste_url: String,
-        password: String,
-    ) -> Result<(), PasteError> {
-        self.db.delete_paste(paste_url, password).await
     }
 }

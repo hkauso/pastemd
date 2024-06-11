@@ -7,21 +7,25 @@ use axum::{
     Router,
 };
 use tower_http::services::ServeDir;
-use crate::model::{PasteManager, Paste};
+use crate::model::Paste;
+use crate::database::Database;
 
 // `routing::pages` manages the frontend displaying of requested data
-pub fn routes(manager: PasteManager) -> Router {
+pub fn routes(database: Database) -> Router {
     Router::new()
         .route("/:url", get(view_paste_by_url))
         .nest_service("/assets", get_service(ServeDir::new("./assets")))
-        .with_state(manager)
+        .with_state(database)
 }
+
 pub async fn root() -> &'static str {
     "A landing page will be displayed here, eventually with a code editor"
 }
+
 pub async fn not_found_handler() -> &'static str {
     "Error 404: the resource you requested could not be found"
 }
+
 #[derive(Template)]
 #[template(path = "paste.html")]
 struct PasteView {
@@ -40,9 +44,9 @@ struct PasteView {
 
 pub async fn view_paste_by_url(
     Path(url): Path<String>,
-    State(manager): State<PasteManager>,
+    State(database): State<Database>,
 ) -> impl IntoResponse {
-    match manager.get_paste_by_url(url).await {
+    match database.get_paste_by_url(url).await {
         Ok(p) => {
             let paste_render = PasteView {
                 title: p.url.to_string(),
