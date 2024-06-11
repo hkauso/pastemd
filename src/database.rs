@@ -44,6 +44,13 @@ impl Database {
     /// ## Arguments:
     /// * `url` - [`String`] of the paste's `url` field
     pub async fn get_paste_by_url(&self, url: String) -> Result<Paste> {
+        // check in cache
+        match self.base.cachedb.get(format!("paste:{}", url)).await {
+            Some(c) => return Ok(serde_json::from_str::<Paste>(c.as_str()).unwrap()),
+            None => (),
+        };
+
+        // pull from database
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
             "SELECT * FROM \"pastes\" WHERE \"url\" = ?"
         } else {
@@ -61,7 +68,6 @@ impl Database {
         };
 
         // return
-        // TODO: cache original result (res)
         let paste = Paste {
             id: res.get("id").unwrap().to_string(),
             url: res.get("url").unwrap().to_string(),
@@ -71,6 +77,16 @@ impl Database {
             date_edited: res.get("date_edited").unwrap().parse::<u64>().unwrap(),
         };
 
+        // store in cache
+        self.base
+            .cachedb
+            .set(
+                format!("paste:{}", url),
+                serde_json::to_string::<Paste>(&paste).unwrap(),
+            )
+            .await;
+
+        // return
         Ok(paste)
     }
 
@@ -135,7 +151,13 @@ impl Database {
 
         let c = &self.base.db.client;
         match sqlquery(query).bind::<&String>(&url).execute(c).await {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                // remove from cache
+                self.base.cachedb.remove(format!("paste:{}", url)).await;
+
+                // return
+                return Ok(());
+            }
             Err(_) => return Err(PasteError::Other),
         };
     }
@@ -195,7 +217,13 @@ impl Database {
             .execute(c)
             .await
         {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                // remove from cache
+                self.base.cachedb.remove(format!("paste:{}", url)).await;
+
+                // return
+                return Ok(());
+            }
             Err(_) => return Err(PasteError::Other),
         };
     }

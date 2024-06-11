@@ -1,4 +1,4 @@
-//! `routing::api` responds to requests that should return serialized data to the client. It creates an interface for the `PasteManager` CRUD struct defined in `model`
+//! Responds to API requests
 use crate::model::{PasteCreate, PasteDelete, PasteEdit, PasteError, Paste};
 use crate::database::Database;
 use dorsal::DefaultReturn;
@@ -19,33 +19,45 @@ pub fn routes(database: Database) -> Router {
         .with_state(database)
 }
 
+/// Create a new paste (`/api/new`)
 async fn create_paste(
     State(database): State<Database>,
     Json(paste_to_create): Json<PasteCreate>,
 ) -> Result<(), PasteError> {
     let res = database.create_paste(paste_to_create).await;
+
     match res {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
     }
 }
 
+/// Delete an existing paste (`/api/:url/delete`)
 async fn delete_paste_by_url(
     State(database): State<Database>,
     Path(url): Path<String>,
     Json(paste_to_delete): Json<PasteDelete>,
-) -> Result<(), PasteError> {
-    database
+) -> Result<Json<DefaultReturn<()>>, PasteError> {
+    match database
         .delete_paste_by_url(url, paste_to_delete.password)
         .await
+    {
+        Ok(_) => Ok(Json(DefaultReturn {
+            success: true,
+            message: String::from("Paste deleted"),
+            payload: (),
+        })),
+        Err(e) => Err(e),
+    }
 }
 
+/// Edit an existing paste (`/api/:url/edit`)
 async fn edit_paste_by_url(
     State(database): State<Database>,
     Path(url): Path<String>,
     Json(paste_to_edit): Json<PasteEdit>,
-) -> Result<(), PasteError> {
-    database
+) -> Result<Json<DefaultReturn<()>>, PasteError> {
+    match database
         .edit_paste_by_url(
             url,
             paste_to_edit.password,
@@ -54,15 +66,27 @@ async fn edit_paste_by_url(
             paste_to_edit.new_password,
         )
         .await
+    {
+        Ok(_) => Ok(Json(DefaultReturn {
+            success: true,
+            message: String::from("Paste updated"),
+            payload: (),
+        })),
+        Err(e) => Err(e),
+    }
 }
 
+/// Get an existing paste by url (`/api/:url`)
 pub async fn get_paste_by_url(
     State(database): State<Database>,
     Path(url): Path<String>,
-) -> Result<Json<Paste>, PasteError> {
-    let return_paste = database.get_paste_by_url(url).await;
-    match return_paste {
-        Ok(p) => Ok(Json(p)),
+) -> Result<Json<DefaultReturn<Paste>>, PasteError> {
+    match database.get_paste_by_url(url).await {
+        Ok(p) => Ok(Json(DefaultReturn {
+            success: true,
+            message: String::from("Paste exists"),
+            payload: p,
+        })),
         Err(e) => Err(e),
     }
 }
