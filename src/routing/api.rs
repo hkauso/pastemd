@@ -1,6 +1,9 @@
 //! `routing::api` responds to requests that should return serialized data to the client. It creates an interface for the `PasteManager` CRUD struct defined in `model`
 use crate::model::{PasteCreate, PasteDelete, PasteEdit, PasteError, Paste};
 use crate::database::Database;
+use dorsal::DefaultReturn;
+
+use axum::response::IntoResponse;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -43,7 +46,13 @@ async fn edit_paste_by_url(
     Json(paste_to_edit): Json<PasteEdit>,
 ) -> Result<(), PasteError> {
     database
-        .edit_paste_by_url(url, paste_to_edit.password, paste_to_edit.new_content)
+        .edit_paste_by_url(
+            url,
+            paste_to_edit.password,
+            paste_to_edit.new_content,
+            paste_to_edit.new_url,
+            paste_to_edit.new_password,
+        )
         .await
 }
 
@@ -56,4 +65,13 @@ pub async fn get_paste_by_url(
         Ok(p) => Ok(Json(p)),
         Err(e) => Err(e),
     }
+}
+
+// general
+pub async fn not_found() -> impl IntoResponse {
+    Json(DefaultReturn::<u16> {
+        success: false,
+        message: String::from("Path does not exist"),
+        payload: 404,
+    })
 }

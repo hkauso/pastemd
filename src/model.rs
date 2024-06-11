@@ -1,8 +1,11 @@
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
+
 use serde::{Deserialize, Serialize};
+use dorsal::DefaultReturn;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Paste {
@@ -30,8 +33,13 @@ pub struct PasteDelete {
 pub struct PasteEdit {
     pub password: String,
     pub new_content: String,
+    #[serde(default)]
+    pub new_password: String,
+    #[serde(default)]
+    pub new_url: String,
 }
 
+/// General API errors
 pub enum PasteError {
     PasswordIncorrect,
     AlreadyExists,
@@ -43,22 +51,40 @@ impl IntoResponse for PasteError {
     fn into_response(self) -> Response {
         use crate::model::PasteError::*;
         match self {
-            PasswordIncorrect => {
-                (StatusCode::BAD_REQUEST, "The given password is invalid.").into_response()
-            }
+            PasswordIncorrect => (
+                StatusCode::UNAUTHORIZED,
+                Json(DefaultReturn::<u16> {
+                    success: false,
+                    message: String::from("The given password is invalid."),
+                    payload: 401,
+                }),
+            )
+                .into_response(),
             AlreadyExists => (
                 StatusCode::BAD_REQUEST,
-                "A paste with this URL already exists.",
+                Json(DefaultReturn::<u16> {
+                    success: false,
+                    message: String::from("A paste with this URL already exists."),
+                    payload: 400,
+                }),
             )
                 .into_response(),
             NotFound => (
                 StatusCode::NOT_FOUND,
-                "No paste with this URL has been found.",
+                Json(DefaultReturn::<u16> {
+                    success: false,
+                    message: String::from("No paste with this URL has been found."),
+                    payload: 404,
+                }),
             )
                 .into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "An unspecified error occured with the paste manager",
+                Json(DefaultReturn::<u16> {
+                    success: false,
+                    message: String::from("An unspecified error has occured"),
+                    payload: 500,
+                }),
             )
                 .into_response(),
         }

@@ -145,12 +145,16 @@ impl Database {
     /// ## Arguments:
     /// * `url` - the paste to delete
     /// * `password` - the paste's edit password
-    /// * `new_content` - the new content of the past
+    /// * `new_content` - the new content of the paste
+    /// * `new_url` - the new url of the paste
+    /// * `new_password` - the new password of the paste
     pub async fn edit_paste_by_url(
         &self,
         url: String,
         password: String,
         new_content: String,
+        mut new_url: String,
+        mut new_password: String,
     ) -> Result<()> {
         // get paste
         let existing = match self.get_paste_by_url(url.clone()).await {
@@ -163,16 +167,30 @@ impl Database {
             return Err(PasteError::PasswordIncorrect);
         }
 
+        // hash new password
+        if !new_password.is_empty() {
+            new_password = utility::hash(new_password);
+        } else {
+            new_password = existing.password;
+        }
+
+        // update new_url
+        if new_url.is_empty() {
+            new_url = existing.url;
+        }
+
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"pastes\" SET \"content\" = ? WHERE \"url\" = ?"
+            "UPDATE \"pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ? WHERE \"url\" = ?"
         } else {
-            "UPDATE \"pastes\" SET (\"content\" = $1) WHERE \"url\" = $2"
+            "UPDATE \"pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3) WHERE \"url\" = $4"
         };
 
         let c = &self.base.db.client;
         match sqlquery(query)
             .bind::<&String>(&new_content)
+            .bind::<&String>(&new_password)
+            .bind::<&String>(&new_url)
             .bind::<&String>(&url)
             .execute(c)
             .await

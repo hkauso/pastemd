@@ -1,11 +1,15 @@
-use axum::{routing::get, Router};
-use pasties::{routing::api, routing::pages, DatabaseOpts, database::Database};
+use axum::Router;
+use pasties::{routing::api, DatabaseOpts, database::Database};
 use std::env;
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
-    const PORT: u16 = 7878;
+    dotenv::dotenv().ok(); // load .env
+
+    let port: u16 = match env::var("PORT") {
+        Ok(v) => v.parse::<u16>().unwrap(),
+        Err(_) => 8080,
+    };
 
     let manager = Database::new(DatabaseOpts {
         // dorsal expects "_type" and "host" to be Option but "env::var" gives Result...
@@ -27,15 +31,13 @@ async fn main() {
     manager.init().await;
 
     let app = Router::new()
-        .route("/", get(pages::root))
-        .merge(pages::routes(manager.clone()))
         .nest("/api", api::routes(manager.clone()))
-        .fallback(pages::not_found_handler);
+        .fallback(api::not_found);
 
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{PORT}"))
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
         .unwrap();
 
-    println!("Starting server at http://localhost:{PORT}!");
+    println!("Starting server at http://localhost:{port}!");
     axum::serve(listener, app).await.unwrap();
 }
