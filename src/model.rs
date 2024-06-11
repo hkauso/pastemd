@@ -19,8 +19,10 @@ pub struct Paste {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PasteCreate {
+    #[serde(default)]
     pub url: String,
     pub content: String,
+    #[serde(default)]
     pub password: String,
 }
 
@@ -47,6 +49,18 @@ pub enum PasteError {
     Other,
 }
 
+impl PasteError {
+    pub fn to_string(&self) -> String {
+        use crate::model::PasteError::*;
+        match self {
+            PasswordIncorrect => String::from("The given password is invalid."),
+            AlreadyExists => String::from("A paste with this URL already exists."),
+            NotFound => String::from("No paste with this URL has been found."),
+            _ => String::from("An unspecified error has occured"),
+        }
+    }
+}
+
 impl IntoResponse for PasteError {
     fn into_response(self) -> Response {
         use crate::model::PasteError::*;
@@ -55,7 +69,7 @@ impl IntoResponse for PasteError {
                 StatusCode::UNAUTHORIZED,
                 Json(DefaultReturn::<u16> {
                     success: false,
-                    message: String::from("The given password is invalid."),
+                    message: self.to_string(),
                     payload: 401,
                 }),
             )
@@ -64,7 +78,7 @@ impl IntoResponse for PasteError {
                 StatusCode::BAD_REQUEST,
                 Json(DefaultReturn::<u16> {
                     success: false,
-                    message: String::from("A paste with this URL already exists."),
+                    message: self.to_string(),
                     payload: 400,
                 }),
             )
@@ -73,7 +87,7 @@ impl IntoResponse for PasteError {
                 StatusCode::NOT_FOUND,
                 Json(DefaultReturn::<u16> {
                     success: false,
-                    message: String::from("No paste with this URL has been found."),
+                    message: self.to_string(),
                     payload: 404,
                 }),
             )
@@ -82,7 +96,7 @@ impl IntoResponse for PasteError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(DefaultReturn::<u16> {
                     success: false,
-                    message: String::from("An unspecified error has occured"),
+                    message: self.to_string(),
                     payload: 500,
                 }),
             )

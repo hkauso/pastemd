@@ -94,13 +94,40 @@ impl Database {
     ///
     /// ## Arguments:
     /// * `props` - [`PasteCreate`]   
-    pub async fn create_paste(&self, props: PasteCreate) -> Result<()> {
+    pub async fn create_paste(&self, mut props: PasteCreate) -> Result<Paste> {
         // make sure paste doesn't already exist
         if let Ok(_) = self.get_paste_by_url(props.url.clone()).await {
             return Err(PasteError::AlreadyExists);
         }
 
-        // TODO: check url length, content length, etc
+        // check lengths
+        if props.url.len() > 250 {
+            return Err(PasteError::Other);
+        }
+
+        if props.content.len() > 200_000 {
+            return Err(PasteError::Other);
+        }
+
+        // create url if not supplied
+        if props.url.is_empty() {
+            props.url = utility::random_id().chars().take(10).collect();
+        }
+
+        // create random password if not supplied
+        if props.password.is_empty() {
+            props.password = utility::random_id().chars().take(10).collect();
+        }
+
+        // ...
+        let paste = Paste {
+            id: utility::random_id(),
+            url: props.url,
+            content: props.content,
+            password: utility::hash(props.password),
+            date_published: crate::utility::unix_timestamp(),
+            date_edited: crate::utility::unix_timestamp(),
+        };
 
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
@@ -111,16 +138,16 @@ impl Database {
 
         let c = &self.base.db.client;
         match sqlquery(query)
-            .bind::<&String>(&utility::random_id())
-            .bind::<&String>(&props.url)
-            .bind::<&String>(&utility::hash(props.password))
-            .bind::<&String>(&props.content)
-            .bind::<&String>(&crate::utility::unix_timestamp().to_string())
-            .bind::<&String>(&crate::utility::unix_timestamp().to_string())
+            .bind::<&String>(&paste.id)
+            .bind::<&String>(&paste.url)
+            .bind::<&String>(&paste.password)
+            .bind::<&String>(&paste.content)
+            .bind::<&String>(&paste.date_published.to_string())
+            .bind::<&String>(&paste.date_edited.to_string())
             .execute(c)
             .await
         {
-            Ok(_) => return Ok(()),
+            Ok(_) => return Ok(paste),
             Err(_) => return Err(PasteError::Other),
         };
     }

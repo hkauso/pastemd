@@ -1,6 +1,6 @@
 [package]
-name = "pasties"
-version = "0.1.0"
+name = "pastieslib"
+version = "0.1.1"
 edition = "2021"
 
 [features]
