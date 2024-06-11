@@ -1,9 +1,12 @@
-🦀 pasties
-==========
+🦀 pastemd
+=============
 
-`pasties` is a small pastebin site written in rust
-it's currently under heavy development with the majority of functions still missing
+`pastemd` is a small pastebin API/library that easily allows the creation of new pastebin sites with different frontends.
+
+An example/template can be found at <https://github.com/hkauso/sealable>.
+
+***
 
 This fork uses a [Dorsal](https://github.com/stellularorg/dorsal)-based backend which supports multiple database types. Please see the [original source](https://github.com/caffeineee/pasties) for more current development.
 
-This fork only serves an API and no frontend. It is encouraged you use this feature to build your own frontend around or to learn how to write your own pastebin API.
+This fork only handles the database and API routes (with Axum). It is encouraged you build your own frontend around the API or use the source to learn how to write your own pastebin API.

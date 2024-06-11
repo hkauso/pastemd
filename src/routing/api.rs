@@ -23,7 +23,7 @@ pub fn routes(database: Database) -> Router {
 async fn create_paste(
     State(database): State<Database>,
     Json(paste_to_create): Json<PasteCreate>,
-) -> Result<Json<DefaultReturn<Paste>>, PasteError> {
+) -> Result<Json<DefaultReturn<(String, Paste)>>, PasteError> {
     let res = database.create_paste(paste_to_create).await;
 
     match res {

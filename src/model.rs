@@ -13,8 +13,8 @@ pub struct Paste {
     pub url: String,
     pub content: String,
     pub password: String,
-    pub date_published: u64,
-    pub date_edited: u64,
+    pub date_published: u128,
+    pub date_edited: u128,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

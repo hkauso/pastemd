@@ -73,8 +73,8 @@ impl Database {
             url: res.get("url").unwrap().to_string(),
             content: res.get("content").unwrap().to_string(),
             password: res.get("password").unwrap().to_string(),
-            date_published: res.get("date_published").unwrap().parse::<u64>().unwrap(),
-            date_edited: res.get("date_edited").unwrap().parse::<u64>().unwrap(),
+            date_published: res.get("date_published").unwrap().parse::<u128>().unwrap(),
+            date_edited: res.get("date_edited").unwrap().parse::<u128>().unwrap(),
         };
 
         // store in cache
@@ -93,8 +93,11 @@ impl Database {
     /// Get an existing paste by `url`
     ///
     /// ## Arguments:
-    /// * `props` - [`PasteCreate`]   
-    pub async fn create_paste(&self, mut props: PasteCreate) -> Result<Paste> {
+    /// * `props` - [`PasteCreate`]
+    ///
+    /// ## Returns:
+    /// * Result containing a tuple with the unhashed edit password and the paste
+    pub async fn create_paste(&self, mut props: PasteCreate) -> Result<(String, Paste)> {
         // make sure paste doesn't already exist
         if let Ok(_) = self.get_paste_by_url(props.url.clone()).await {
             return Err(PasteError::AlreadyExists);
@@ -124,9 +127,9 @@ impl Database {
             id: utility::random_id(),
             url: props.url,
             content: props.content,
-            password: utility::hash(props.password),
-            date_published: crate::utility::unix_timestamp(),
-            date_edited: crate::utility::unix_timestamp(),
+            password: utility::hash(props.password.clone()),
+            date_published: utility::unix_epoch_timestamp(),
+            date_edited: utility::unix_epoch_timestamp(),
         };
 
         // create paste
@@ -147,7 +150,7 @@ impl Database {
             .execute(c)
             .await
         {
-            Ok(_) => return Ok(paste),
+            Ok(_) => return Ok((props.password, paste)),
             Err(_) => return Err(PasteError::Other),
         };
     }
@@ -230,9 +233,9 @@ impl Database {
 
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ? WHERE \"url\" = ?"
+            "UPDATE \"pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ?, \"date_edited\" = ? WHERE \"url\" = ?"
         } else {
-            "UPDATE \"pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3) WHERE \"url\" = $4"
+            "UPDATE \"pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3, \"date_edited\" = $4) WHERE \"url\" = $5"
         };
 
         let c = &self.base.db.client;
@@ -240,6 +243,7 @@ impl Database {
             .bind::<&String>(&new_content)
             .bind::<&String>(&new_password)
             .bind::<&String>(&new_url)
+            .bind::<&String>(&utility::unix_epoch_timestamp().to_string())
             .bind::<&String>(&url)
             .execute(c)
             .await
