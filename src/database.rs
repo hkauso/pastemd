@@ -44,7 +44,13 @@ impl Database {
     ///
     /// ## Arguments:
     /// * `url` - [`String`] of the paste's `url` field
-    pub async fn get_paste_by_url(&self, url: String) -> Result<Paste> {
+    pub async fn get_paste_by_url(&self, mut url: String) -> Result<Paste> {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
         // check in cache
         match self.base.cachedb.get(format!("paste:{}", url)).await {
             Some(c) => return Ok(serde_json::from_str::<Paste>(c.as_str()).unwrap()),
@@ -103,6 +109,12 @@ impl Database {
     /// ## Returns:
     /// * Result containing a tuple with the unhashed edit password and the paste
     pub async fn create_paste(&self, mut props: PasteCreate) -> Result<(String, Paste)> {
+        props.url = idna::punycode::encode_str(&props.url).unwrap();
+
+        if props.url.ends_with("-") {
+            props.url.pop();
+        }
+
         // make sure paste doesn't already exist
         if let Ok(_) = self.get_paste_by_url(props.url.clone()).await {
             return Err(PasteError::AlreadyExists);
@@ -182,7 +194,13 @@ impl Database {
     /// ## Arguments:
     /// * `url` - the paste to delete
     /// * `password` - the paste's edit password
-    pub async fn delete_paste_by_url(&self, url: String, password: String) -> Result<()> {
+    pub async fn delete_paste_by_url(&self, mut url: String, password: String) -> Result<()> {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
         // get paste
         let existing = match self.get_paste_by_url(url.clone()).await {
             Ok(p) => p,
@@ -224,12 +242,18 @@ impl Database {
     /// * `new_password` - the new password of the paste
     pub async fn edit_paste_by_url(
         &self,
-        url: String,
+        mut url: String,
         password: String,
         new_content: String,
         mut new_url: String,
         mut new_password: String,
     ) -> Result<()> {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
         // get paste
         let existing = match self.get_paste_by_url(url.clone()).await {
             Ok(p) => p,
@@ -251,6 +275,12 @@ impl Database {
         // update new_url
         if new_url.is_empty() {
             new_url = existing.url;
+        }
+
+        new_url = idna::punycode::encode_str(&new_url).unwrap();
+
+        if new_url.ends_with("-") {
+            new_url.pop();
         }
 
         // create paste
