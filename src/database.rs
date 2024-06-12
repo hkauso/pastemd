@@ -24,13 +24,14 @@ impl Database {
         let c = &self.base.db.client;
 
         let _ = sqlquery(
-            "CREATE TABLE IF NOT EXISTS \"pastes\" (
+            "CREATE TABLE IF NOT EXISTS \"se_pastes\" (
                  id             TEXT,
                  url            TEXT,
                  password       TEXT,
                  content        TEXT,
                  date_published TEXT,
-                 date_edited    TEXT
+                 date_edited    TEXT,
+                 metadata       TEXT
              )",
         )
         .execute(c)
@@ -52,9 +53,9 @@ impl Database {
 
         // pull from database
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "SELECT * FROM \"pastes\" WHERE \"url\" = ?"
+            "SELECT * FROM \"se_pastes\" WHERE \"url\" = ?"
         } else {
-            "SELECT * FROM \"pastes\" WHERE \"url\" = $1"
+            "SELECT * FROM \"se_pastes\" WHERE \"url\" = $1"
         };
 
         let c = &self.base.db.client;
@@ -75,6 +76,10 @@ impl Database {
             password: res.get("password").unwrap().to_string(),
             date_published: res.get("date_published").unwrap().parse::<u128>().unwrap(),
             date_edited: res.get("date_edited").unwrap().parse::<u128>().unwrap(),
+            metadata: match serde_json::from_str(res.get("metadata").unwrap()) {
+                Ok(m) => m,
+                Err(_) => return Err(PasteError::ValueError),
+            },
         };
 
         // store in cache
@@ -105,11 +110,11 @@ impl Database {
 
         // check lengths
         if props.url.len() > 250 {
-            return Err(PasteError::Other);
+            return Err(PasteError::ValueError);
         }
 
         if props.content.len() > 200_000 {
-            return Err(PasteError::Other);
+            return Err(PasteError::ValueError);
         }
 
         // create url if not supplied
@@ -122,6 +127,16 @@ impl Database {
             props.password = utility::random_id().chars().take(10).collect();
         }
 
+        // (characters used)
+        let regex = regex::RegexBuilder::new("^[\\w\\_\\-\\.\\!\\p{Extended_Pictographic}]+$")
+            .multi_line(true)
+            .build()
+            .unwrap();
+
+        if regex.captures(&props.url).iter().len() < 1 {
+            return Err(PasteError::ValueError);
+        }
+
         // ...
         let paste = Paste {
             id: utility::random_id(),
@@ -130,13 +145,14 @@ impl Database {
             password: utility::hash(props.password.clone()),
             date_published: utility::unix_epoch_timestamp(),
             date_edited: utility::unix_epoch_timestamp(),
+            metadata: super::model::PasteMetadata::default(),
         };
 
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "INSERT INTO \"pastes\" VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO \"se_pastes\" VALUES (?, ?, ?, ?, ?, ?, ?)"
         } else {
-            "INSERT INTO \"pastes\" VALEUS ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO \"se_pastes\" VALEUS ($1, $2, $3, $4, $5, $6, $7)"
         };
 
         let c = &self.base.db.client;
@@ -147,6 +163,12 @@ impl Database {
             .bind::<&String>(&paste.content)
             .bind::<&String>(&paste.date_published.to_string())
             .bind::<&String>(&paste.date_edited.to_string())
+            .bind::<&String>(
+                match serde_json::to_string(&super::model::PasteMetadata::default()) {
+                    Ok(ref s) => s,
+                    Err(_) => return Err(PasteError::ValueError),
+                },
+            )
             .execute(c)
             .await
         {
@@ -174,9 +196,9 @@ impl Database {
 
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "DELETE FROM \"pastes\" WHERE \"url\" = ?"
+            "DELETE FROM \"se_pastes\" WHERE \"url\" = ?"
         } else {
-            "DELETE FROM \"pastes\" WHERE \"url\" = $1"
+            "DELETE FROM \"se_pastes\" WHERE \"url\" = $1"
         };
 
         let c = &self.base.db.client;
@@ -233,9 +255,9 @@ impl Database {
 
         // create paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ?, \"date_edited\" = ? WHERE \"url\" = ?"
+            "UPDATE \"se_pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ?, \"date_edited\" = ? WHERE \"url\" = ?"
         } else {
-            "UPDATE \"pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3, \"date_edited\" = $4) WHERE \"url\" = $5"
+            "UPDATE \"se_pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3, \"date_edited\" = $4) WHERE \"url\" = $5"
         };
 
         let c = &self.base.db.client;

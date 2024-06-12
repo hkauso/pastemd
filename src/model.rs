@@ -15,6 +15,16 @@ pub struct Paste {
     pub password: String,
     pub date_published: u128,
     pub date_edited: u128,
+    pub metadata: PasteMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PasteMetadata {}
+
+impl Default for PasteMetadata {
+    fn default() -> Self {
+        Self {}
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -45,6 +55,7 @@ pub struct PasteEdit {
 pub enum PasteError {
     PasswordIncorrect,
     AlreadyExists,
+    ValueError,
     NotFound,
     Other,
 }
@@ -55,6 +66,7 @@ impl PasteError {
         match self {
             PasswordIncorrect => String::from("The given password is invalid."),
             AlreadyExists => String::from("A paste with this URL already exists."),
+            ValueError => String::from("One of the field values given is invalid."),
             NotFound => String::from("No paste with this URL has been found."),
             _ => String::from("An unspecified error has occured"),
         }
