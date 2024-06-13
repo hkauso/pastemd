@@ -1,4 +1,4 @@
-use crate::model::{PasteCreate, PasteError, Paste};
+use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata};
 
 use dorsal::utility;
 use dorsal::query as sqlquery;
@@ -212,7 +212,7 @@ impl Database {
             return Err(PasteError::PasswordIncorrect);
         }
 
-        // create paste
+        // delete paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
             "DELETE FROM \"se_pastes\" WHERE \"url\" = ?"
         } else {
@@ -232,10 +232,10 @@ impl Database {
         };
     }
 
-    /// Get an existing paste by `url`
+    /// Edit an existing paste by `url`
     ///
     /// ## Arguments:
-    /// * `url` - the paste to delete
+    /// * `url` - the paste to edit
     /// * `password` - the paste's edit password
     /// * `new_content` - the new content of the paste
     /// * `new_url` - the new url of the paste
@@ -283,7 +283,7 @@ impl Database {
             new_url.pop();
         }
 
-        // create paste
+        // edit paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
             "UPDATE \"se_pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ?, \"date_edited\" = ? WHERE \"url\" = ?"
         } else {
@@ -296,6 +296,64 @@ impl Database {
             .bind::<&String>(&new_password)
             .bind::<&String>(&new_url)
             .bind::<&String>(&utility::unix_epoch_timestamp().to_string())
+            .bind::<&String>(&url)
+            .execute(c)
+            .await
+        {
+            Ok(_) => {
+                // remove from cache
+                self.base.cachedb.remove(format!("paste:{}", url)).await;
+
+                // return
+                return Ok(());
+            }
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Edit an existing paste's metadata by `url`
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste to edit
+    /// * `password` - the paste's edit password
+    /// * `metadata` - the new metadata of the paste
+    pub async fn edit_paste_metadata_by_url(
+        &self,
+        mut url: String,
+        password: String,
+        metadata: PasteMetadata,
+    ) -> Result<()> {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
+        // get paste
+        let existing = match self.get_paste_by_url(url.clone()).await {
+            Ok(p) => p,
+            Err(err) => return Err(err),
+        };
+
+        // check password
+        // TODO: allow password to start with "user:" and check paste ownership from metadata
+        if utility::hash(password) != existing.password {
+            return Err(PasteError::PasswordIncorrect);
+        }
+
+        // edit paste
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \"se_pastes\" SET \"metadata\" = ? WHERE \"url\" = ?"
+        } else {
+            "UPDATE \"se_pastes\" SET (\"metadata\" = $1) WHERE \"url\" = $2"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(match serde_json::to_string(&metadata) {
+                Ok(ref m) => m,
+                Err(_) => return Err(PasteError::ValueError),
+            })
             .bind::<&String>(&url)
             .execute(c)
             .await

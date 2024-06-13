@@ -1,5 +1,5 @@
 //! Responds to API requests
-use crate::model::{PasteCreate, PasteDelete, PasteEdit, PasteError, Paste};
+use crate::model::{PasteCreate, PasteDelete, PasteEdit, PasteError, PasteEditMetadata, Paste};
 use crate::database::Database;
 use dorsal::DefaultReturn;
 
@@ -16,6 +16,7 @@ pub fn routes(database: Database) -> Router {
         .route("/:url", get(get_paste_by_url))
         .route("/:url/delete", post(delete_paste_by_url))
         .route("/:url/edit", post(edit_paste_by_url))
+        .route("/:url/metadata", post(edit_paste_metadata_by_url))
         .with_state(database)
 }
 
@@ -69,6 +70,25 @@ async fn edit_paste_by_url(
             paste_to_edit.new_url,
             paste_to_edit.new_password,
         )
+        .await
+    {
+        Ok(_) => Ok(Json(DefaultReturn {
+            success: true,
+            message: String::from("Paste updated"),
+            payload: (),
+        })),
+        Err(e) => Err(e),
+    }
+}
+
+/// Edit an existing paste's metadata (`/api/:url/metadata`)
+async fn edit_paste_metadata_by_url(
+    State(database): State<Database>,
+    Path(url): Path<String>,
+    Json(paste_to_edit): Json<PasteEditMetadata>,
+) -> Result<Json<DefaultReturn<()>>, PasteError> {
+    match database
+        .edit_paste_metadata_by_url(url, paste_to_edit.password, paste_to_edit.metadata)
         .await
     {
         Ok(_) => Ok(Json(DefaultReturn {

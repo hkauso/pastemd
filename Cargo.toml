@@ -1,11 +1,15 @@
 [package]
 name = "pastemd"
-description = "Pastebin service API"
+description = "Pluggable pastebin backend"
 authors = ["hkau"]
 license = "MIT"
 
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
+
+documentation = "https://docs.rs/pastemd"
+repository = "https://github.com/hkauso/pastemd"
+categories = ["pastebin", "api", "database"]
 
 [features]
 postgres = ["dorsal/postgres"]

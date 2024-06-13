@@ -51,6 +51,12 @@ pub struct PasteEdit {
     pub new_url: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PasteEditMetadata {
+    pub password: String,
+    pub metadata: PasteMetadata,
+}
+
 /// General API errors
 pub enum PasteError {
     PasswordIncorrect,
