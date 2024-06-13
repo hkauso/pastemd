@@ -81,7 +81,7 @@ impl Database {
         }
 
         // check in cache
-        match self.base.cachedb.get(format!("paste:{}", url)).await {
+        match self.base.cachedb.get(format!("se_paste:{}", url)).await {
             Some(c) => return Ok(serde_json::from_str::<Paste>(c.as_str()).unwrap()),
             None => (),
         };
@@ -121,7 +121,7 @@ impl Database {
         self.base
             .cachedb
             .set(
-                format!("paste:{}", url),
+                format!("se_paste:{}", url),
                 serde_json::to_string::<Paste>(&paste).unwrap(),
             )
             .await;
@@ -150,7 +150,7 @@ impl Database {
         }
 
         // check lengths
-        if props.url.len() > 250 {
+        if (props.url.len() > 250) | (props.url.len() < 3) {
             return Err(PasteError::ValueError);
         }
 
@@ -252,7 +252,7 @@ impl Database {
         match sqlquery(query).bind::<&String>(&url).execute(c).await {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("paste:{}", url)).await;
+                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
 
                 // return
                 return Ok(());
@@ -331,7 +331,7 @@ impl Database {
         {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("paste:{}", url)).await;
+                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
 
                 // return
                 return Ok(());
@@ -389,7 +389,7 @@ impl Database {
         {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("paste:{}", url)).await;
+                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
 
                 // return
                 return Ok(());
