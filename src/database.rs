@@ -5,16 +5,45 @@ use dorsal::query as sqlquery;
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
+#[derive(Clone, Debug)]
+pub struct ServerOptions {
+    /// If pastes have an "owner" field in their metadata and "password" fields take "user:..."
+    pub paste_ownership: bool,
+    /// If pastes can require a password to be viewed
+    pub view_password: bool,
+}
+
+impl ServerOptions {
+    /// Enable all options
+    pub fn truthy() -> Self {
+        Self {
+            paste_ownership: true,
+            view_password: true,
+        }
+    }
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self {
+            paste_ownership: false,
+            view_password: false,
+        }
+    }
+}
+
 /// Database connector
 #[derive(Clone)]
 pub struct Database {
     pub base: dorsal::StarterDatabase,
+    pub options: ServerOptions,
 }
 
 impl Database {
-    pub async fn new(opts: dorsal::DatabaseOpts) -> Self {
+    pub async fn new(opts: dorsal::DatabaseOpts, opts1: ServerOptions) -> Self {
         Self {
             base: dorsal::StarterDatabase::new(opts).await,
+            options: opts1,
         }
     }
 
@@ -125,7 +154,7 @@ impl Database {
             return Err(PasteError::ValueError);
         }
 
-        if props.content.len() > 200_000 {
+        if (props.content.len() > 200_000) | (props.content.len() < 1) {
             return Err(PasteError::ValueError);
         }
 
