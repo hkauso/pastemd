@@ -21,20 +21,19 @@ pub struct Paste {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// All of these fields are
 pub struct PasteMetadata {
-    /// Can be disabled
-    pub owner: String,
     /// Paste page title
+    #[serde(default)]
     pub title: String,
     /// Paste view password (can be disabled)
+    #[serde(default)]
     pub view_password: String,
 }
 
 impl Default for PasteMetadata {
     fn default() -> Self {
         Self {
-            owner: String::new(),
             title: String::new(),
-            view_password: String::from("off"),
+            view_password: String::new(),
         }
     }
 }

@@ -4,12 +4,16 @@ description = "Pluggable pastebin backend"
 authors = ["hkau"]
 license = "MIT"
 
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 
 documentation = "https://docs.rs/pastemd"
 repository = "https://github.com/hkauso/pastemd"
 categories = ["web-programming", "database"]
+
+[package.metadata.docs.rs]
+features = ["sqlite"]
+no-default-features = true
 
 [features]
 postgres = ["dorsal/postgres"]

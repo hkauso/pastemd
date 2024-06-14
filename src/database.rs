@@ -7,8 +7,6 @@ pub type Result<T> = std::result::Result<T, PasteError>;
 
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
-    /// If pastes have an "owner" field in their metadata and "password" fields take "user:..."
-    pub paste_ownership: bool,
     /// If pastes can require a password to be viewed
     pub view_password: bool,
 }
@@ -17,7 +15,6 @@ impl ServerOptions {
     /// Enable all options
     pub fn truthy() -> Self {
         Self {
-            paste_ownership: true,
             view_password: true,
         }
     }
@@ -26,7 +23,6 @@ impl ServerOptions {
 impl Default for ServerOptions {
     fn default() -> Self {
         Self {
-            paste_ownership: false,
             view_password: false,
         }
     }
@@ -241,6 +237,9 @@ impl Database {
             return Err(PasteError::PasswordIncorrect);
         }
 
+        // delete paste view count
+        self.base.cachedb.remove(format!("se_views:{}", url)).await;
+
         // delete paste
         let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
             "DELETE FROM \"se_pastes\" WHERE \"url\" = ?"
@@ -396,5 +395,45 @@ impl Database {
             }
             Err(_) => return Err(PasteError::Other),
         };
+    }
+
+    // views
+
+    /// Get an existing url's view count
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste to count the view for
+    pub async fn get_views_by_url(&self, mut url: String) -> i32 {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
+        // get views
+        match self.base.cachedb.get(format!("se_views:{}", url)).await {
+            Some(c) => c.parse::<i32>().unwrap(),
+            None => 0,
+        }
+    }
+
+    /// Update an existing url's view count
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste to count the view for
+    pub async fn incr_views_by_url(&self, mut url: String) -> Result<()> {
+        url = idna::punycode::encode_str(&url).unwrap();
+
+        if url.ends_with("-") {
+            url.pop();
+        }
+
+        // add view
+        // views never reach the database, they're only stored in memory
+        match self.base.cachedb.incr(format!("se_views:{}", url)).await {
+            // swapped for some reason??
+            false => Ok(()),
+            true => Err(PasteError::Other),
+        }
     }
 }
