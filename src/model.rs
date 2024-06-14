@@ -27,6 +27,9 @@ pub struct PasteMetadata {
     /// Paste view password (can be disabled)
     #[serde(default)]
     pub view_password: String,
+    /// Paste owner username
+    #[serde(default)]
+    pub owner: String,
 }
 
 impl Default for PasteMetadata {
@@ -34,6 +37,7 @@ impl Default for PasteMetadata {
         Self {
             title: String::new(),
             view_password: String::new(),
+            owner: String::new(),
         }
     }
 }

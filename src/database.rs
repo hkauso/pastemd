@@ -11,6 +11,8 @@ pub struct ServerOptions {
     pub view_password: bool,
     /// If authentication through guppy is enabled
     pub guppy: bool,
+    /// Paste owner username (guppy required)
+    pub paste_ownership: bool,
 }
 
 impl ServerOptions {
@@ -19,6 +21,7 @@ impl ServerOptions {
         Self {
             view_password: true,
             guppy: true,
+            paste_ownership: true,
         }
     }
 }
@@ -28,6 +31,7 @@ impl Default for ServerOptions {
         Self {
             view_password: false,
             guppy: false,
+            paste_ownership: false,
         }
     }
 }

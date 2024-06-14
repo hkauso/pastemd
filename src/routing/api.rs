@@ -14,12 +14,15 @@ use axum_extra::extract::cookie::CookieJar;
 pub fn routes(database: Database) -> Router {
     Router::new()
         .route("/new", post(create_paste))
+        // pastes
         .route("/:url", get(get_paste_by_url))
         .route("/:url/delete", post(delete_paste_by_url))
         .route("/:url/edit", post(edit_paste_by_url))
         .route("/:url/metadata", post(edit_paste_metadata_by_url))
+        // auth
         .route("/auth/callback", get(callback_request))
         .route("/auth/logout", get(logout_request))
+        // ...
         .with_state(database)
 }
 
@@ -86,10 +89,33 @@ async fn edit_paste_by_url(
 
 /// Edit an existing paste's metadata (`/api/:url/metadata`)
 async fn edit_paste_metadata_by_url(
+    jar: CookieJar,
     State(database): State<Database>,
     Path(url): Path<String>,
-    Json(paste_to_edit): Json<PasteEditMetadata>,
+    Json(mut paste_to_edit): Json<PasteEditMetadata>,
 ) -> Result<Json<DefaultReturn<()>>, PasteError> {
+    // if we've been given an authentication cookie (and it's allowed),
+    // we'll check the user and then set metadata.owner
+    if let Some(cookie) = jar.get("__Secure-Token") {
+        let value = cookie.value_trimmed();
+
+        if (database.options.guppy == true) && (database.options.paste_ownership == true) {
+            match database
+                .auth
+                .get_user_by_unhashed(value.to_string())
+                .await
+                .payload
+            {
+                Some(ua) => paste_to_edit.metadata.owner = ua.user.username,
+                None => paste_to_edit.metadata.owner = "".to_string(),
+            }
+        }
+    } else {
+        // clear owner field if paste is edited by an anonymous user
+        paste_to_edit.metadata.owner = "".to_string();
+    }
+
+    // ...
     match database
         .edit_paste_metadata_by_url(url, paste_to_edit.password, paste_to_edit.metadata)
         .await
