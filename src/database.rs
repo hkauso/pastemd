@@ -9,6 +9,8 @@ pub type Result<T> = std::result::Result<T, PasteError>;
 pub struct ServerOptions {
     /// If pastes can require a password to be viewed
     pub view_password: bool,
+    /// If authentication through guppy is enabled
+    pub guppy: bool,
 }
 
 impl ServerOptions {
@@ -16,6 +18,7 @@ impl ServerOptions {
     pub fn truthy() -> Self {
         Self {
             view_password: true,
+            guppy: true,
         }
     }
 }
@@ -24,6 +27,7 @@ impl Default for ServerOptions {
     fn default() -> Self {
         Self {
             view_password: false,
+            guppy: false,
         }
     }
 }
@@ -32,13 +36,17 @@ impl Default for ServerOptions {
 #[derive(Clone)]
 pub struct Database {
     pub base: dorsal::StarterDatabase,
+    pub auth: dorsal::AuthDatabase,
     pub options: ServerOptions,
 }
 
 impl Database {
     pub async fn new(opts: dorsal::DatabaseOpts, opts1: ServerOptions) -> Self {
+        let base = dorsal::StarterDatabase::new(opts).await;
+
         Self {
-            base: dorsal::StarterDatabase::new(opts).await,
+            base: base.clone(),
+            auth: dorsal::AuthDatabase::new(base).await,
             options: opts1,
         }
     }
@@ -145,15 +153,6 @@ impl Database {
             return Err(PasteError::AlreadyExists);
         }
 
-        // check lengths
-        if (props.url.len() > 250) | (props.url.len() < 3) {
-            return Err(PasteError::ValueError);
-        }
-
-        if (props.content.len() > 200_000) | (props.content.len() < 1) {
-            return Err(PasteError::ValueError);
-        }
-
         // create url if not supplied
         if props.url.is_empty() {
             props.url = utility::random_id().chars().take(10).collect();
@@ -162,6 +161,15 @@ impl Database {
         // create random password if not supplied
         if props.password.is_empty() {
             props.password = utility::random_id().chars().take(10).collect();
+        }
+
+        // check lengths
+        if (props.url.len() > 250) | (props.url.len() < 3) {
+            return Err(PasteError::ValueError);
+        }
+
+        if (props.content.len() > 200_000) | (props.content.len() < 1) {
+            return Err(PasteError::ValueError);
         }
 
         // (characters used)

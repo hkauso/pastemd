@@ -4,7 +4,7 @@ description = "Pluggable pastebin backend"
 authors = ["hkau"]
 license = "MIT"
 
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 
 documentation = "https://docs.rs/pastemd"
@@ -30,3 +30,4 @@ dorsal = { version = "0.1.3-1", default-features = false }
 dotenv = "0.15.0"
 regex = "1.10.5"
 idna = "1.0.0"
+axum-extra = { version = "0.9.3", features = ["cookie"] }
