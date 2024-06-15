@@ -2,6 +2,7 @@ use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata};
 
 use dorsal::utility;
 use dorsal::query as sqlquery;
+use dorsal::db::special::auth_db::{FullUser, UserMetadata};
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
@@ -288,7 +289,7 @@ impl Database {
         new_content: String,
         mut new_url: String,
         mut new_password: String,
-        editing_as: Option<dorsal::db::special::auth_db::FullUser<String>>,
+        editing_as: Option<FullUser<UserMetadata>>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap();
 
@@ -380,7 +381,7 @@ impl Database {
         mut url: String,
         password: String,
         metadata: PasteMetadata,
-        editing_as: Option<dorsal::db::special::auth_db::FullUser<String>>,
+        editing_as: Option<FullUser<UserMetadata>>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap();
 

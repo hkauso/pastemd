@@ -81,14 +81,9 @@ async fn edit_paste_by_url(
                 let value = cookie.value_trimmed();
 
                 if database.options.guppy == true {
-                    match database
-                        .auth
-                        .get_user_by_unhashed(value.to_string())
-                        .await
-                        .payload
-                    {
-                        Some(ua) => Option::Some(ua),
-                        None => Option::None,
+                    match database.auth.get_user_by_unhashed(value.to_string()).await {
+                        Ok(ua) => Option::Some(ua),
+                        Err(_) => return Err(PasteError::Other),
                     }
                 } else {
                     Option::None
@@ -121,14 +116,9 @@ async fn edit_paste_metadata_by_url(
         let value = cookie.value_trimmed();
 
         if (database.options.guppy == true) && (database.options.paste_ownership == true) {
-            match database
-                .auth
-                .get_user_by_unhashed(value.to_string())
-                .await
-                .payload
-            {
-                Some(ua) => paste_to_edit.metadata.owner = ua.user.username,
-                None => paste_to_edit.metadata.owner = "".to_string(),
+            match database.auth.get_user_by_unhashed(value.to_string()).await {
+                Ok(ua) => paste_to_edit.metadata.owner = ua.user.username,
+                Err(_) => paste_to_edit.metadata.owner = "".to_string(),
             }
         }
     } else {
@@ -147,14 +137,9 @@ async fn edit_paste_metadata_by_url(
                 let value = cookie.value_trimmed();
 
                 if database.options.guppy == true {
-                    match database
-                        .auth
-                        .get_user_by_unhashed(value.to_string())
-                        .await
-                        .payload
-                    {
-                        Some(ua) => Option::Some(ua),
-                        None => Option::None,
+                    match database.auth.get_user_by_unhashed(value.to_string()).await {
+                        Ok(ua) => Option::Some(ua),
+                        Err(_) => return Err(PasteError::Other),
                     }
                 } else {
                     Option::None
