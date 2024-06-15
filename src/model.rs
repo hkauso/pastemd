@@ -24,6 +24,15 @@ pub struct PasteMetadata {
     /// Paste page title
     #[serde(default)]
     pub title: String,
+    /// Paste page description
+    #[serde(default)]
+    pub description: String,
+    /// Paste theme color
+    #[serde(default)]
+    pub theme_color: String,
+    /// Paste favicon link
+    #[serde(default)]
+    pub favicon: String,
     /// Paste view password (can be disabled)
     #[serde(default)]
     pub view_password: String,
@@ -36,6 +45,9 @@ impl Default for PasteMetadata {
     fn default() -> Self {
         Self {
             title: String::new(),
+            description: String::new(),
+            theme_color: String::new(),
+            favicon: String::new(),
             view_password: String::new(),
             owner: String::new(),
         }

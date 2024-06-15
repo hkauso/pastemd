@@ -64,6 +64,7 @@ async fn delete_paste_by_url(
 
 /// Edit an existing paste (`/api/:url/edit`)
 async fn edit_paste_by_url(
+    jar: CookieJar,
     State(database): State<Database>,
     Path(url): Path<String>,
     Json(paste_to_edit): Json<PasteEdit>,
@@ -75,6 +76,26 @@ async fn edit_paste_by_url(
             paste_to_edit.new_content,
             paste_to_edit.new_url,
             paste_to_edit.new_password,
+            // get editing_as
+            if let Some(cookie) = jar.get("__Secure-Token") {
+                let value = cookie.value_trimmed();
+
+                if database.options.guppy == true {
+                    match database
+                        .auth
+                        .get_user_by_unhashed(value.to_string())
+                        .await
+                        .payload
+                    {
+                        Some(ua) => Option::Some(ua),
+                        None => Option::None,
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            },
         )
         .await
     {
@@ -117,7 +138,31 @@ async fn edit_paste_metadata_by_url(
 
     // ...
     match database
-        .edit_paste_metadata_by_url(url, paste_to_edit.password, paste_to_edit.metadata)
+        .edit_paste_metadata_by_url(
+            url,
+            paste_to_edit.password,
+            paste_to_edit.metadata,
+            // get editing_as
+            if let Some(cookie) = jar.get("__Secure-Token") {
+                let value = cookie.value_trimmed();
+
+                if database.options.guppy == true {
+                    match database
+                        .auth
+                        .get_user_by_unhashed(value.to_string())
+                        .await
+                        .payload
+                    {
+                        Some(ua) => Option::Some(ua),
+                        None => Option::None,
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            },
+        )
         .await
     {
         Ok(_) => Ok(Json(DefaultReturn {

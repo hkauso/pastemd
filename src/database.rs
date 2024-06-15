@@ -280,6 +280,7 @@ impl Database {
     /// * `new_content` - the new content of the paste
     /// * `new_url` - the new url of the paste
     /// * `new_password` - the new password of the paste
+    /// * `editing_as` - the userstate of the user we're editing the paste as
     pub async fn edit_paste_by_url(
         &self,
         mut url: String,
@@ -287,6 +288,7 @@ impl Database {
         new_content: String,
         mut new_url: String,
         mut new_password: String,
+        editing_as: Option<dorsal::db::special::auth_db::FullUser<String>>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap();
 
@@ -301,8 +303,23 @@ impl Database {
         };
 
         // check password
-        if utility::hash(password) != existing.password {
-            return Err(PasteError::PasswordIncorrect);
+        let mut skip_password_check: bool = false;
+
+        if let Some(ua) = editing_as {
+            // check if we're the paste owner
+            if ua.user.username == existing.metadata.owner {
+                skip_password_check = true;
+            }
+            // check if we have the "ManagePastes" permission
+            else if ua.level.permissions.contains(&"ManagePastes".to_string()) {
+                skip_password_check = true;
+            }
+        }
+
+        if skip_password_check == false {
+            if utility::hash(password) != existing.password {
+                return Err(PasteError::PasswordIncorrect);
+            }
         }
 
         // hash new password
@@ -357,11 +374,13 @@ impl Database {
     /// * `url` - the paste to edit
     /// * `password` - the paste's edit password
     /// * `metadata` - the new metadata of the paste
+    /// * `editing_as` - the userstate of the user we're editing the paste as
     pub async fn edit_paste_metadata_by_url(
         &self,
         mut url: String,
         password: String,
         metadata: PasteMetadata,
+        editing_as: Option<dorsal::db::special::auth_db::FullUser<String>>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap();
 
@@ -376,9 +395,23 @@ impl Database {
         };
 
         // check password
-        // TODO: allow password to start with "user:" and check paste ownership from metadata
-        if utility::hash(password) != existing.password {
-            return Err(PasteError::PasswordIncorrect);
+        let mut skip_password_check: bool = false;
+
+        if let Some(ua) = editing_as {
+            // check if we're the paste owner
+            if ua.user.username == existing.metadata.owner {
+                skip_password_check = true;
+            }
+            // check if we have the "ManagePastes" permission
+            else if ua.level.permissions.contains(&"ManagePastes".to_string()) {
+                skip_password_check = true;
+            }
+        }
+
+        if skip_password_check == false {
+            if utility::hash(password) != existing.password {
+                return Err(PasteError::PasswordIncorrect);
+            }
         }
 
         // edit paste
