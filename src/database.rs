@@ -6,6 +6,15 @@ use dorsal::db::special::auth_db::{FullUser, UserMetadata};
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum ViewMode {
+    /// Only authenticated users can count as a paste view and only one
+    AuthenticatedOnce,
+    /// Anybody can count as a paste view multiple times;
+    /// views are only stored in redis when using this mode
+    OpenMultiple,
+}
+
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
     /// If pastes can require a password to be viewed
@@ -14,6 +23,8 @@ pub struct ServerOptions {
     pub guppy: bool,
     /// Paste owner username (guppy required)
     pub paste_ownership: bool,
+    /// View mode options
+    pub view_mode: ViewMode,
 }
 
 impl ServerOptions {
@@ -23,6 +34,7 @@ impl ServerOptions {
             view_password: true,
             guppy: true,
             paste_ownership: true,
+            view_mode: ViewMode::OpenMultiple,
         }
     }
 }
@@ -33,6 +45,7 @@ impl Default for ServerOptions {
             view_password: false,
             guppy: false,
             paste_ownership: false,
+            view_mode: ViewMode::OpenMultiple,
         }
     }
 }
@@ -74,6 +87,18 @@ impl Database {
         )
         .execute(c)
         .await;
+
+        if self.options.view_mode == ViewMode::AuthenticatedOnce {
+            // create table to track views
+            let _ = sqlquery(
+                "CREATE TABLE IF NOT EXISTS \"se_views\" (
+                 url      TEXT,
+                 username TEXT
+            )",
+            )
+            .execute(c)
+            .await;
+        }
     }
 
     // ...
@@ -265,6 +290,20 @@ impl Database {
             Ok(_) => {
                 // remove from cache
                 self.base.cachedb.remove(format!("se_paste:{}", url)).await;
+
+                if self.options.view_mode == ViewMode::AuthenticatedOnce {
+                    // delete all view logs
+                    let query: &str =
+                        if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+                            "DELETE FROM \"se_views\" WHERE \"url\" = ?"
+                        } else {
+                            "DELETE FROM \"se_views\" WHERE \"url\" = $1"
+                        };
+
+                    if let Err(_) = sqlquery(query).bind::<&String>(&url).execute(c).await {
+                        return Err(PasteError::Other);
+                    };
+                }
 
                 // return
                 return Ok(());
@@ -459,7 +498,37 @@ impl Database {
         // get views
         match self.base.cachedb.get(format!("se_views:{}", url)).await {
             Some(c) => c.parse::<i32>().unwrap(),
-            None => 0,
+            None => {
+                // try to count from "se_views"
+                if self.options.view_mode == ViewMode::AuthenticatedOnce {
+                    let query: &str =
+                        if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+                            "SELECT * FROM \"se_views\" WHERE \"url\" = ?"
+                        } else {
+                            "SELECT * FROM \"se_views\" WHERE \"url\" = $1"
+                        };
+
+                    let c = &self.base.db.client;
+                    match sqlquery(query).bind::<&String>(&url).fetch_all(c).await {
+                        Ok(views) => {
+                            let views = views.len();
+
+                            // store in cache
+                            self.base
+                                .cachedb
+                                .set(format!("se_views:{}", url), views.to_string())
+                                .await;
+
+                            // return
+                            return views as i32;
+                        }
+                        Err(_) => return 0,
+                    };
+                }
+
+                // return 0 by default
+                0
+            }
         }
     }
 
@@ -467,11 +536,52 @@ impl Database {
     ///
     /// ## Arguments:
     /// * `url` - the paste to count the view for
-    pub async fn incr_views_by_url(&self, mut url: String) -> Result<()> {
+    /// * `as_user` - the userstate of the user viewing this (for [`ViewMode::AuthenticatedOnce`])
+    pub async fn incr_views_by_url(
+        &self,
+        mut url: String,
+        as_user: Option<FullUser<UserMetadata>>,
+    ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap();
 
         if url.ends_with("-") {
             url.pop();
+        }
+
+        // handle AuthenticatedOnce
+        if self.options.view_mode == ViewMode::AuthenticatedOnce {
+            match as_user {
+                Some(ua) => {
+                    // check for view
+                    if self
+                        .user_has_viewed_paste(url.clone(), ua.user.username.clone())
+                        .await
+                    {
+                        // can only view once in this mode
+                        return Ok(());
+                    }
+
+                    // create view
+                    let query: &str =
+                        if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+                            "INSERT INTO \"se_views\" VALUES (?, ?)"
+                        } else {
+                            "INSERT INTO \"se_views\" VALEUS ($1, $2)"
+                        };
+
+                    let c = &self.base.db.client;
+                    match sqlquery(query)
+                        .bind::<&String>(&url)
+                        .bind::<&String>(&ua.user.username)
+                        .execute(c)
+                        .await
+                    {
+                        Ok(_) => (), // do nothing so cache is incremented
+                        Err(_) => return Err(PasteError::Other),
+                    };
+                }
+                None => return Ok(()), // not technically an error, just not allowed
+            }
         }
 
         // add view
@@ -481,5 +591,34 @@ impl Database {
             false => Ok(()),
             true => Err(PasteError::Other),
         }
+    }
+
+    /// Check if a user has views a paste given the `url` and their `username`
+    ///
+    /// ## Arguments:
+    /// * `url` - the paste url
+    /// * `username` - the username of the user
+    pub async fn user_has_viewed_paste(&self, url: String, username: String) -> bool {
+        if self.options.view_mode == ViewMode::AuthenticatedOnce {
+            let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql")
+            {
+                "SELECT * FROM \"se_views\" WHERE \"url\" = ? AND \"username\" = ?"
+            } else {
+                "SELECT * FROM \"se_views\" WHERE \"url\" = $1 AND \"username\" = ?"
+            };
+
+            let c = &self.base.db.client;
+            match sqlquery(query)
+                .bind::<&String>(&url)
+                .bind::<&String>(&username)
+                .fetch_one(c)
+                .await
+            {
+                Ok(_) => return true,
+                Err(_) => return false,
+            };
+        }
+
+        false
     }
 }
