@@ -4,7 +4,7 @@ description = "Pluggable pastebin backend"
 authors = ["hkau"]
 license = "MIT"
 
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 
 documentation = "https://docs.rs/pastemd"
@@ -19,7 +19,7 @@ no-default-features = true
 postgres = ["dorsal/postgres"]
 mysql = ["dorsal/mysql"]
 sqlite = ["dorsal/sqlite"]
-default = ["dorsal/sqlite"] # for development
+# default = ["dorsal/sqlite"] # for development
 
 [dependencies]
 axum = "0.7.5"
