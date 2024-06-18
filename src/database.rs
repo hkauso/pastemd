@@ -1,14 +1,15 @@
-use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata};
+use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata, Document, DocumentCreate};
 
 use dorsal::utility;
 use dorsal::query as sqlquery;
 use dorsal::db::special::auth_db::{FullUser, UserMetadata};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewMode {
-    /// Only authenticated users can count as a paste view and only one
+    /// Only authenticated users can count as a paste view and only once
     AuthenticatedOnce,
     /// Anybody can count as a paste view multiple times;
     /// views are only stored in redis when using this mode
@@ -21,8 +22,10 @@ pub struct ServerOptions {
     pub view_password: bool,
     /// If authentication through guppy is enabled
     pub guppy: bool,
-    /// Paste owner username (guppy required)
+    /// If pastes can have a owner username (guppy required)
     pub paste_ownership: bool,
+    /// If [`Document`]s are allowed (needed for external plugins)
+    pub document_store: bool,
     /// View mode options
     pub view_mode: ViewMode,
 }
@@ -34,6 +37,7 @@ impl ServerOptions {
             view_password: true,
             guppy: true,
             paste_ownership: true,
+            document_store: true,
             view_mode: ViewMode::OpenMultiple,
         }
     }
@@ -45,6 +49,7 @@ impl Default for ServerOptions {
             view_password: false,
             guppy: false,
             paste_ownership: false,
+            document_store: false,
             view_mode: ViewMode::OpenMultiple,
         }
     }
@@ -92,9 +97,24 @@ impl Database {
             // create table to track views
             let _ = sqlquery(
                 "CREATE TABLE IF NOT EXISTS \"se_views\" (
-                 url      TEXT,
-                 username TEXT
-            )",
+                    url      TEXT,
+                    username TEXT
+                )",
+            )
+            .execute(c)
+            .await;
+        }
+
+        if self.options.document_store == true {
+            // create table to store documents
+            let _ = sqlquery(
+                "CREATE TABLE IF NOT EXISTS \"se_documents\" (
+                    id        TEXT,
+                    namespace TEXT,
+                    content   TEXT,
+                    timestamp TEXT,
+                    metadata  TEXT
+                )",
             )
             .execute(c)
             .await;
@@ -164,7 +184,7 @@ impl Database {
         Ok(paste)
     }
 
-    /// Get an existing paste by `url`
+    /// Create a new paste
     ///
     /// ## Arguments:
     /// * `props` - [`PasteCreate`]
@@ -238,12 +258,10 @@ impl Database {
             .bind::<&String>(&paste.content)
             .bind::<&String>(&paste.date_published.to_string())
             .bind::<&String>(&paste.date_edited.to_string())
-            .bind::<&String>(
-                match serde_json::to_string(&super::model::PasteMetadata::default()) {
-                    Ok(ref s) => s,
-                    Err(_) => return Err(PasteError::ValueError),
-                },
-            )
+            .bind::<&String>(match serde_json::to_string(&paste.metadata) {
+                Ok(ref s) => s,
+                Err(_) => return Err(PasteError::ValueError),
+            })
             .execute(c)
             .await
         {
@@ -252,7 +270,7 @@ impl Database {
         };
     }
 
-    /// Get an existing paste by `url`
+    /// Delete an existing paste by `url`
     ///
     /// ## Arguments:
     /// * `url` - the paste to delete
@@ -620,5 +638,289 @@ impl Database {
         }
 
         false
+    }
+
+    // documents
+
+    /// Pull an existing document by `id`
+    ///
+    /// ## Arguments:
+    /// * `id` - [`String`] of the document's `id` field
+    /// * `namespace` - [`String`] of the namespace the document belongs to
+    pub async fn pull<
+        T: Serialize + DeserializeOwned + From<String>,
+        M: Serialize + DeserializeOwned,
+    >(
+        &self,
+        id: String,
+        namespace: String,
+    ) -> Result<Document<T, M>> {
+        if self.options.document_store == false {
+            return Err(PasteError::Other);
+        }
+
+        // check in cache
+        match self.base.cachedb.get(format!("se_document:{}", id)).await {
+            Some(c) => return Ok(serde_json::from_str::<Document<T, M>>(c.as_str()).unwrap()),
+            None => (),
+        };
+
+        // pull from database
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "SELECT * FROM \"se_documents\" WHERE \"id\" = ? AND \"namespace\" = ?"
+        } else {
+            "SELECT * FROM \"se_documents\" WHERE \"id\" = $1 AND \"namespace\" = $2"
+        };
+
+        let c = &self.base.db.client;
+        let res = match sqlquery(query)
+            .bind::<&String>(&id)
+            .bind::<&String>(&namespace)
+            .fetch_one(c)
+            .await
+        {
+            Ok(p) => self.base.textify_row(p).data,
+            Err(_) => return Err(PasteError::NotFound),
+        };
+
+        // return
+        let doc = Document {
+            id: res.get("id").unwrap().to_string(),
+            namespace: res.get("namespace").unwrap().to_string(),
+            content: res.get("content").unwrap().to_string().into(),
+            timestamp: res.get("date_published").unwrap().parse::<u128>().unwrap(),
+            metadata: match serde_json::from_str(res.get("metadata").unwrap()) {
+                Ok(m) => m,
+                Err(_) => return Err(PasteError::ValueError),
+            },
+        };
+
+        // store in cache
+        self.base
+            .cachedb
+            .set(
+                format!("se_document:{}:{}", namespace, id),
+                serde_json::to_string::<Document<T, M>>(&doc).unwrap(),
+            )
+            .await;
+
+        // return
+        Ok(doc)
+    }
+
+    /// Create a a new document
+    ///
+    /// Making sure values are unique should be done before calling `push`.
+    ///
+    /// ## Arguments:
+    /// * `props` - [`DocumentCreate`]
+    ///
+    /// ## Returns:
+    /// * Full [`Document`]
+    pub async fn push<T: ToString, M: Serialize>(
+        &self,
+        props: DocumentCreate<T, M>,
+    ) -> Result<Document<T, M>> {
+        if self.options.document_store == false {
+            return Err(PasteError::Other);
+        }
+
+        // ...
+        let doc = Document {
+            id: utility::random_id(),
+            namespace: props.namespace,
+            content: props.content,
+            timestamp: utility::unix_epoch_timestamp(),
+            metadata: props.metadata,
+        };
+
+        // create paste
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "INSERT INTO \"se_documents\" VALUES (?, ?, ?, ?, ?)"
+        } else {
+            "INSERT INTO \"se_documents\" VALEUS ($1, $2, $3, $4, $5)"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(&doc.id)
+            .bind::<&String>(&doc.namespace)
+            .bind::<&String>(&doc.content.to_string())
+            .bind::<&String>(&doc.timestamp.to_string())
+            .bind::<&String>(match serde_json::to_string(&doc.metadata) {
+                Ok(ref s) => s,
+                Err(_) => return Err(PasteError::ValueError),
+            })
+            .execute(c)
+            .await
+        {
+            Ok(_) => return Ok(doc),
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Delete an existing document by `id`
+    ///
+    /// Permission checks should be done before calling `drop`.
+    ///
+    /// ## Arguments:
+    /// * `id` - the document to delete
+    /// * `namespace` - the namespace the document belongs to
+    pub async fn drop<
+        T: Serialize + DeserializeOwned + From<String>,
+        M: Serialize + DeserializeOwned,
+    >(
+        &self,
+        id: String,
+        namespace: String,
+    ) -> Result<()> {
+        if self.options.document_store == false {
+            return Err(PasteError::Other);
+        }
+
+        // make sure document exists
+        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
+            return Err(e);
+        };
+
+        // delete document
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "DELETE FROM \"se_documents\" WHERE \"id\" = ? AND \"namespace\" = ?"
+        } else {
+            "DELETE FROM \"se_documents\" WHERE \"id\" = $1 AND \"namespace\" = $2"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(&id)
+            .bind::<&String>(&namespace)
+            .execute(c)
+            .await
+        {
+            Ok(_) => {
+                // remove from cache
+                self.base
+                    .cachedb
+                    .remove(format!("se_document:{}:{}", namespace, id))
+                    .await;
+
+                // return
+                return Ok(());
+            }
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Edit an existing document by `id`
+    ///
+    /// Permission checks should be done before calling `update`.
+    ///
+    /// ## Arguments:
+    /// * `id` - the document to edit
+    /// * `namespace` - the namespace the document belongs to
+    /// * `new_content` - the new content of the paste
+    pub async fn update<
+        T: Serialize + DeserializeOwned + From<String> + ToString,
+        M: Serialize + DeserializeOwned,
+    >(
+        &self,
+        id: String,
+        namespace: String,
+        new_content: String,
+    ) -> Result<()> {
+        if self.options.document_store == false {
+            return Err(PasteError::Other);
+        }
+
+        // make sure document exists
+        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
+            return Err(e);
+        };
+
+        // edit document
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \"se_pastes\" SET \"content\" = ? WHERE \"url\" = ? AND \"namespace\" = ?"
+        } else {
+            "UPDATE \"se_pastes\" SET \"content\" = $1 WHERE \"url\" = $2 AND \"namespace\" = $3"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(&new_content.to_string())
+            .bind::<&String>(&id)
+            .bind::<&String>(&namespace)
+            .execute(c)
+            .await
+        {
+            Ok(_) => {
+                // remove from cache
+                self.base
+                    .cachedb
+                    .remove(format!("se_document:{}:{}", namespace, id))
+                    .await;
+
+                // return
+                return Ok(());
+            }
+            Err(_) => return Err(PasteError::Other),
+        };
+    }
+
+    /// Edit an existing paste's metadata by `url`
+    ///
+    /// Permission checks should be done before calling `update`.
+    ///
+    /// ## Arguments:
+    /// * `id` - the document to edit
+    /// * `namespace` - the namespace the document belongs to    
+    /// * `metadata` - the new metadata of the document
+    pub async fn update_metadata<
+        T: Serialize + DeserializeOwned + From<String> + ToString,
+        M: Serialize + DeserializeOwned,
+    >(
+        &self,
+        id: String,
+        namespace: String,
+        metadata: PasteMetadata,
+    ) -> Result<()> {
+        if self.options.document_store == false {
+            return Err(PasteError::Other);
+        }
+
+        // make sure document exists
+        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
+            return Err(e);
+        };
+
+        // edit document
+        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \"se_documents\" SET \"metadata\" = ? WHERE \"url\" = ? AND \"namespace\" = ?"
+        } else {
+            "UPDATE \"se_documents\" SET \"metadata\" = $1 WHERE \"url\" = $2 AND \"namespace\" = $3"
+        };
+
+        let c = &self.base.db.client;
+        match sqlquery(query)
+            .bind::<&String>(match serde_json::to_string(&metadata) {
+                Ok(ref m) => m,
+                Err(_) => return Err(PasteError::ValueError),
+            })
+            .bind::<&String>(&id)
+            .bind::<&String>(&namespace)
+            .execute(c)
+            .await
+        {
+            Ok(_) => {
+                // remove from cache
+                self.base
+                    .cachedb
+                    .remove(format!("se_document:{}:{}", namespace, id))
+                    .await;
+
+                // return
+                return Ok(());
+            }
+            Err(_) => return Err(PasteError::Other),
+        };
     }
 }

@@ -54,6 +54,20 @@ impl Default for PasteMetadata {
     }
 }
 
+/// Basic serialized content storage for extra features that don't need their own table
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Document<T, M> {
+    // identifiers
+    pub id: String,
+    pub namespace: String,
+    // document;
+    pub content: T,
+    pub timestamp: u128,
+    pub metadata: M,
+}
+
+// props
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PasteCreate {
     #[serde(default)]
@@ -82,6 +96,13 @@ pub struct PasteEdit {
 pub struct PasteEditMetadata {
     pub password: String,
     pub metadata: PasteMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DocumentCreate<T, M> {
+    pub namespace: String,
+    pub content: T,
+    pub metadata: M,
 }
 
 /// General API errors
