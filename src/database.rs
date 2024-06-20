@@ -128,7 +128,7 @@ impl Database {
     /// ## Arguments:
     /// * `url` - [`String`] of the paste's `url` field
     pub async fn get_paste_by_url(&self, mut url: String) -> Result<Paste> {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
@@ -192,7 +192,9 @@ impl Database {
     /// ## Returns:
     /// * Result containing a tuple with the unhashed edit password and the paste
     pub async fn create_paste(&self, mut props: PasteCreate) -> Result<(String, Paste)> {
-        props.url = idna::punycode::encode_str(&props.url).unwrap();
+        props.url = idna::punycode::encode_str(&props.url)
+            .unwrap()
+            .to_lowercase();
 
         if props.url.ends_with("-") {
             props.url.pop();
@@ -276,7 +278,7 @@ impl Database {
     /// * `url` - the paste to delete
     /// * `password` - the paste's edit password
     pub async fn delete_paste_by_url(&self, mut url: String, password: String) -> Result<()> {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
@@ -348,7 +350,7 @@ impl Database {
         mut new_password: String,
         editing_as: Option<FullUser<UserMetadata>>,
     ) -> Result<()> {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
@@ -440,7 +442,7 @@ impl Database {
         metadata: PasteMetadata,
         editing_as: Option<FullUser<UserMetadata>>,
     ) -> Result<()> {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
@@ -507,7 +509,7 @@ impl Database {
     /// ## Arguments:
     /// * `url` - the paste to count the view for
     pub async fn get_views_by_url(&self, mut url: String) -> i32 {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
@@ -560,7 +562,7 @@ impl Database {
         mut url: String,
         as_user: Option<FullUser<UserMetadata>>,
     ) -> Result<()> {
-        url = idna::punycode::encode_str(&url).unwrap();
+        url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
             url.pop();
