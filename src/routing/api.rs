@@ -169,7 +169,7 @@ pub async fn get_paste_by_url(
     match database.get_paste_by_url(url).await {
         Ok(p) => {
             if !p.metadata.view_password.is_empty() {
-                Err(PasteError::Other)
+                return Err(PasteError::Other);
             }
 
             Ok(Json(DefaultReturn {
