@@ -1,9 +1,8 @@
-use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata, Document, DocumentCreate};
+use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata};
 
 use dorsal::utility;
 use dorsal::query as sqlquery;
 use dorsal::db::special::auth_db::{FullUser, UserMetadata};
-use serde::{Serialize, de::DeserializeOwned};
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
@@ -17,6 +16,63 @@ pub enum ViewMode {
 }
 
 #[derive(Clone, Debug)]
+pub struct PastesTableConfig {
+    /// The name of the table
+    pub table_name: String,
+    /// The caching prefix associated with the table
+    pub prefix: String,
+    // columns
+    /// Mapping for the `id` column
+    pub id: String,
+    /// Mapping for the `url` column
+    pub url: String,
+    /// Mapping for the `password` column
+    pub password: String,
+    /// Mapping for the `content` column
+    pub content: String,
+    /// Mapping for the `date_published` column
+    pub date_published: String,
+    /// Mapping for the `date_edited` column
+    pub date_edited: String,
+    /// Mapping for the `metadata` column
+    pub metadata: String,
+}
+
+impl Default for PastesTableConfig {
+    fn default() -> Self {
+        Self {
+            table_name: "pastes".to_string(),
+            prefix: "paste".to_string(),
+            // columns
+            id: "id".to_string(),
+            url: "url".to_string(),
+            password: "password".to_string(),
+            content: "content".to_string(),
+            date_published: "date_published".to_string(),
+            date_edited: "date_edited".to_string(),
+            metadata: "metadata".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ViewsTableConfig {
+    /// The name of the table
+    pub table_name: String,
+    /// The caching prefix associated with the table
+    pub prefix: String,
+}
+
+impl Default for ViewsTableConfig {
+    fn default() -> Self {
+        Self {
+            table_name: "views".to_string(),
+            prefix: "views".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ServerOptions {
     /// If pastes can require a password to be viewed
     pub view_password: bool,
@@ -24,10 +80,12 @@ pub struct ServerOptions {
     pub guppy: bool,
     /// If pastes can have a owner username (guppy required)
     pub paste_ownership: bool,
-    /// If [`Document`]s are allowed (needed for external plugins)
-    pub document_store: bool,
     /// View mode options
     pub view_mode: ViewMode,
+    /// Pastes table config
+    pub table_pastes: PastesTableConfig,
+    /// Views table config
+    pub table_views: ViewsTableConfig,
 }
 
 impl ServerOptions {
@@ -37,8 +95,9 @@ impl ServerOptions {
             view_password: true,
             guppy: true,
             paste_ownership: true,
-            document_store: true,
             view_mode: ViewMode::OpenMultiple,
+            table_pastes: PastesTableConfig::default(),
+            table_views: ViewsTableConfig::default(),
         }
     }
 }
@@ -49,8 +108,9 @@ impl Default for ServerOptions {
             view_password: false,
             guppy: false,
             paste_ownership: false,
-            document_store: false,
             view_mode: ViewMode::OpenMultiple,
+            table_pastes: PastesTableConfig::default(),
+            table_views: ViewsTableConfig::default(),
         }
     }
 }
@@ -79,43 +139,39 @@ impl Database {
         // create tables
         let c = &self.base.db.client;
 
-        let _ = sqlquery(
-            "CREATE TABLE IF NOT EXISTS \"se_pastes\" (
-                 id             TEXT,
-                 url            TEXT,
-                 password       TEXT,
-                 content        TEXT,
-                 date_published TEXT,
-                 date_edited    TEXT,
-                 metadata       TEXT
-             )",
-        )
+        let _ = sqlquery(&format!(
+            "CREATE TABLE IF NOT EXISTS \"{}\" (
+                 {} TEXT,
+                 {} TEXT,
+                 {} TEXT,
+                 {} TEXT,
+                 {} TEXT,
+                 {} TEXT,
+                 {} TEXT
+            )",
+            // table
+            self.options.table_pastes.table_name,
+            // columns
+            self.options.table_pastes.id,
+            self.options.table_pastes.url,
+            self.options.table_pastes.password,
+            self.options.table_pastes.content,
+            self.options.table_pastes.date_published,
+            self.options.table_pastes.date_edited,
+            self.options.table_pastes.metadata
+        ))
         .execute(c)
         .await;
 
         if self.options.view_mode == ViewMode::AuthenticatedOnce {
             // create table to track views
-            let _ = sqlquery(
-                "CREATE TABLE IF NOT EXISTS \"se_views\" (
+            let _ = sqlquery(&format!(
+                "CREATE TABLE IF NOT EXISTS \"{}\" (
                     url      TEXT,
                     username TEXT
                 )",
-            )
-            .execute(c)
-            .await;
-        }
-
-        if self.options.document_store == true {
-            // create table to store documents
-            let _ = sqlquery(
-                "CREATE TABLE IF NOT EXISTS \"se_documents\" (
-                    id        TEXT,
-                    namespace TEXT,
-                    content   TEXT,
-                    timestamp TEXT,
-                    metadata  TEXT
-                )",
-            )
+                self.options.table_views.table_name
+            ))
             .execute(c)
             .await;
         }
@@ -135,20 +191,28 @@ impl Database {
         }
 
         // check in cache
-        match self.base.cachedb.get(format!("se_paste:{}", url)).await {
+        match self
+            .base
+            .cachedb
+            .get(format!("{}:{}", self.options.table_pastes.prefix, url))
+            .await
+        {
             Some(c) => return Ok(serde_json::from_str::<Paste>(c.as_str()).unwrap()),
             None => (),
         };
 
         // pull from database
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "SELECT * FROM \"se_pastes\" WHERE \"url\" = ?"
+        let query: String = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "SELECT * FROM \":t\" WHERE \":url\" = ?"
         } else {
-            "SELECT * FROM \"se_pastes\" WHERE \"url\" = $1"
-        };
+            "SELECT * FROM \":t\" WHERE \":url\" = $1"
+        }
+        .to_string()
+        .replace(":t", &self.options.table_pastes.table_name)
+        .replace(":url", &self.options.table_pastes.url);
 
         let c = &self.base.db.client;
-        let res = match sqlquery(query)
+        let res = match sqlquery(&query)
             .bind::<&String>(&url.to_lowercase())
             .fetch_one(c)
             .await
@@ -159,13 +223,29 @@ impl Database {
 
         // return
         let paste = Paste {
-            id: res.get("id").unwrap().to_string(),
-            url: res.get("url").unwrap().to_string(),
-            content: res.get("content").unwrap().to_string(),
-            password: res.get("password").unwrap().to_string(),
-            date_published: res.get("date_published").unwrap().parse::<u128>().unwrap(),
-            date_edited: res.get("date_edited").unwrap().parse::<u128>().unwrap(),
-            metadata: match serde_json::from_str(res.get("metadata").unwrap()) {
+            id: res.get(&self.options.table_pastes.id).unwrap().to_string(),
+            url: res.get(&self.options.table_pastes.url).unwrap().to_string(),
+            password: res
+                .get(&self.options.table_pastes.password)
+                .unwrap()
+                .to_string(),
+            content: res
+                .get(&self.options.table_pastes.content)
+                .unwrap()
+                .to_string(),
+            date_published: res
+                .get(&self.options.table_pastes.date_published)
+                .unwrap()
+                .parse::<u128>()
+                .unwrap(),
+            date_edited: res
+                .get(&self.options.table_pastes.date_edited)
+                .unwrap()
+                .parse::<u128>()
+                .unwrap(),
+            metadata: match serde_json::from_str(
+                res.get(&self.options.table_pastes.metadata).unwrap(),
+            ) {
                 Ok(m) => m,
                 Err(_) => return Err(PasteError::ValueError),
             },
@@ -175,7 +255,7 @@ impl Database {
         self.base
             .cachedb
             .set(
-                format!("se_paste:{}", url),
+                format!("{}:{}", self.options.table_pastes.prefix, url),
                 serde_json::to_string::<Paste>(&paste).unwrap(),
             )
             .await;
@@ -246,14 +326,16 @@ impl Database {
         };
 
         // create paste
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "INSERT INTO \"se_pastes\" VALUES (?, ?, ?, ?, ?, ?, ?)"
+        let query: String = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "INSERT INTO \":t\" VALUES (?, ?, ?, ?, ?, ?, ?)"
         } else {
-            "INSERT INTO \"se_pastes\" VALEUS ($1, $2, $3, $4, $5, $6, $7)"
-        };
+            "INSERT INTO \":t\" VALEUS ($1, $2, $3, $4, $5, $6, $7)"
+        }
+        .to_string()
+        .replace(":t", &self.options.table_pastes.table_name);
 
         let c = &self.base.db.client;
-        match sqlquery(query)
+        match sqlquery(&query)
             .bind::<&String>(&paste.id)
             .bind::<&String>(&paste.url)
             .bind::<&String>(&paste.password)
@@ -296,31 +378,41 @@ impl Database {
         }
 
         // delete paste view count
-        self.base.cachedb.remove(format!("se_views:{}", url)).await;
+        self.base
+            .cachedb
+            .remove(format!("{}:{}", self.options.table_views.prefix, url))
+            .await;
 
         // delete paste
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "DELETE FROM \"se_pastes\" WHERE \"url\" = ?"
+        let query: String = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "DELETE FROM \":t\" WHERE \":url\" = ?"
         } else {
-            "DELETE FROM \"se_pastes\" WHERE \"url\" = $1"
-        };
+            "DELETE FROM \":t\" WHERE \":url\" = $1"
+        }
+        .to_string()
+        .replace(":t", &self.options.table_pastes.table_name)
+        .replace(":url", &self.options.table_pastes.url);
 
         let c = &self.base.db.client;
-        match sqlquery(query).bind::<&String>(&url).execute(c).await {
+        match sqlquery(&query).bind::<&String>(&url).execute(c).await {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
+                self.base
+                    .cachedb
+                    .remove(format!("{}:{}", self.options.table_pastes.prefix, url))
+                    .await;
 
                 if self.options.view_mode == ViewMode::AuthenticatedOnce {
                     // delete all view logs
-                    let query: &str =
+                    let query: String =
                         if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-                            "DELETE FROM \"se_views\" WHERE \"url\" = ?"
+                            "DELETE FROM \":t\" WHERE \"url\" = ?"
                         } else {
-                            "DELETE FROM \"se_views\" WHERE \"url\" = $1"
-                        };
+                            "DELETE FROM \":t\" WHERE \"url\" = $1"
+                        }
+                        .replace(":t", &self.options.table_views.table_name);
 
-                    if let Err(_) = sqlquery(query).bind::<&String>(&url).execute(c).await {
+                    if let Err(_) = sqlquery(&query).bind::<&String>(&url).execute(c).await {
                         return Err(PasteError::Other);
                     };
                 }
@@ -401,14 +493,20 @@ impl Database {
         }
 
         // edit paste
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"se_pastes\" SET \"content\" = ?, \"password\" = ?, \"url\" = ?, \"date_edited\" = ? WHERE \"url\" = ?"
+        let query: String = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \":t\" SET \":content\" = ?, \":password\" = ?, \":url\" = ?, \":date_edited\" = ? WHERE \":url\" = ?"
         } else {
-            "UPDATE \"se_pastes\" SET (\"content\" = $1, \"password\" = $2, \"url\" = $3, \"date_edited\" = $4) WHERE \"url\" = $5"
-        };
+            "UPDATE \":t\" SET (\":content\" = $1, \":password\" = $2, \":url\" = $3, \":date_edited\" = $4) WHERE \":url\" = $5"
+        }
+        .to_string()
+        .replace(":t", &self.options.table_pastes.table_name)
+        .replace(":url", &self.options.table_pastes.url)
+        .replace(":content", &self.options.table_pastes.content)
+        .replace(":password", &self.options.table_pastes.password)
+        .replace(":date_edited", &self.options.table_pastes.date_edited);
 
         let c = &self.base.db.client;
-        match sqlquery(query)
+        match sqlquery(&query)
             .bind::<&String>(&new_content)
             .bind::<&String>(&new_password)
             .bind::<&String>(&new_url)
@@ -419,7 +517,10 @@ impl Database {
         {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
+                self.base
+                    .cachedb
+                    .remove(format!("{}:{}", self.options.table_pastes.prefix, url))
+                    .await;
 
                 // return
                 return Ok(());
@@ -475,14 +576,18 @@ impl Database {
         }
 
         // edit paste
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"se_pastes\" SET \"metadata\" = ? WHERE \"url\" = ?"
+        let query: String = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+            "UPDATE \":t\" SET \":metadata\" = ? WHERE \":url\" = ?"
         } else {
-            "UPDATE \"se_pastes\" SET (\"metadata\" = $1) WHERE \"url\" = $2"
-        };
+            "UPDATE \":t\" SET (\":metadata\" = $1) WHERE \":url\" = $2"
+        }
+        .to_string()
+        .replace(":t", &self.options.table_pastes.table_name)
+        .replace(":url", &self.options.table_pastes.url)
+        .replace(":metadata", &self.options.table_pastes.metadata);
 
         let c = &self.base.db.client;
-        match sqlquery(query)
+        match sqlquery(&query)
             .bind::<&String>(match serde_json::to_string(&metadata) {
                 Ok(ref m) => m,
                 Err(_) => return Err(PasteError::ValueError),
@@ -493,7 +598,10 @@ impl Database {
         {
             Ok(_) => {
                 // remove from cache
-                self.base.cachedb.remove(format!("se_paste:{}", url)).await;
+                self.base
+                    .cachedb
+                    .remove(format!("{}:{}", self.options.table_pastes.prefix, url))
+                    .await;
 
                 // return
                 return Ok(());
@@ -516,27 +624,37 @@ impl Database {
         }
 
         // get views
-        match self.base.cachedb.get(format!("se_views:{}", url)).await {
+        match self
+            .base
+            .cachedb
+            .get(format!("{}:{}", self.options.table_views.prefix, url))
+            .await
+        {
             Some(c) => c.parse::<i32>().unwrap(),
             None => {
-                // try to count from "se_views"
+                // try to count from "views"
                 if self.options.view_mode == ViewMode::AuthenticatedOnce {
-                    let query: &str =
+                    let query: String =
                         if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-                            "SELECT * FROM \"se_views\" WHERE \"url\" = ?"
+                            "SELECT * FROM \":t\" WHERE \"url\" = ?"
                         } else {
-                            "SELECT * FROM \"se_views\" WHERE \"url\" = $1"
-                        };
+                            "SELECT * FROM \":t\" WHERE \"url\" = $1"
+                        }
+                        .to_string()
+                        .replace(":t", &self.options.table_views.table_name);
 
                     let c = &self.base.db.client;
-                    match sqlquery(query).bind::<&String>(&url).fetch_all(c).await {
+                    match sqlquery(&query).bind::<&String>(&url).fetch_all(c).await {
                         Ok(views) => {
                             let views = views.len();
 
                             // store in cache
                             self.base
                                 .cachedb
-                                .set(format!("se_views:{}", url), views.to_string())
+                                .set(
+                                    format!("{}:{}", self.options.table_views.prefix, url),
+                                    views.to_string(),
+                                )
                                 .await;
 
                             // return
@@ -582,15 +700,17 @@ impl Database {
                     }
 
                     // create view
-                    let query: &str =
+                    let query: String =
                         if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-                            "INSERT INTO \"se_views\" VALUES (?, ?)"
+                            "INSERT INTO \":t\" VALUES (?, ?)"
                         } else {
-                            "INSERT INTO \"se_views\" VALEUS ($1, $2)"
-                        };
+                            "INSERT INTO \":t\" VALEUS ($1, $2)"
+                        }
+                        .to_string()
+                        .replace(":t", &self.options.table_views.table_name);
 
                     let c = &self.base.db.client;
-                    match sqlquery(query)
+                    match sqlquery(&query)
                         .bind::<&String>(&url)
                         .bind::<&String>(&ua.user.username)
                         .execute(c)
@@ -606,7 +726,12 @@ impl Database {
 
         // add view
         // views never reach the database, they're only stored in memory
-        match self.base.cachedb.incr(format!("se_views:{}", url)).await {
+        match self
+            .base
+            .cachedb
+            .incr(format!("{}:{}", self.options.table_views.prefix, url))
+            .await
+        {
             // swapped for some reason??
             false => Ok(()),
             true => Err(PasteError::Other),
@@ -620,15 +745,17 @@ impl Database {
     /// * `username` - the username of the user
     pub async fn user_has_viewed_paste(&self, url: String, username: String) -> bool {
         if self.options.view_mode == ViewMode::AuthenticatedOnce {
-            let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql")
-            {
-                "SELECT * FROM \"se_views\" WHERE \"url\" = ? AND \"username\" = ?"
-            } else {
-                "SELECT * FROM \"se_views\" WHERE \"url\" = $1 AND \"username\" = ?"
-            };
+            let query: String =
+                if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
+                    "SELECT * FROM \":t\" WHERE \"url\" = ? AND \"username\" = ?"
+                } else {
+                    "SELECT * FROM \":t\" WHERE \"url\" = $1 AND \"username\" = ?"
+                }
+                .to_string()
+                .replace(":t", &self.options.table_views.table_name);
 
             let c = &self.base.db.client;
-            match sqlquery(query)
+            match sqlquery(&query)
                 .bind::<&String>(&url)
                 .bind::<&String>(&username)
                 .fetch_one(c)
@@ -640,289 +767,5 @@ impl Database {
         }
 
         false
-    }
-
-    // documents
-
-    /// Pull an existing document by `id`
-    ///
-    /// ## Arguments:
-    /// * `id` - [`String`] of the document's `id` field
-    /// * `namespace` - [`String`] of the namespace the document belongs to
-    pub async fn pull<
-        T: Serialize + DeserializeOwned + From<String>,
-        M: Serialize + DeserializeOwned,
-    >(
-        &self,
-        id: String,
-        namespace: String,
-    ) -> Result<Document<T, M>> {
-        if self.options.document_store == false {
-            return Err(PasteError::Other);
-        }
-
-        // check in cache
-        match self.base.cachedb.get(format!("se_document:{}", id)).await {
-            Some(c) => return Ok(serde_json::from_str::<Document<T, M>>(c.as_str()).unwrap()),
-            None => (),
-        };
-
-        // pull from database
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "SELECT * FROM \"se_documents\" WHERE \"id\" = ? AND \"namespace\" = ?"
-        } else {
-            "SELECT * FROM \"se_documents\" WHERE \"id\" = $1 AND \"namespace\" = $2"
-        };
-
-        let c = &self.base.db.client;
-        let res = match sqlquery(query)
-            .bind::<&String>(&id)
-            .bind::<&String>(&namespace)
-            .fetch_one(c)
-            .await
-        {
-            Ok(p) => self.base.textify_row(p).data,
-            Err(_) => return Err(PasteError::NotFound),
-        };
-
-        // return
-        let doc = Document {
-            id: res.get("id").unwrap().to_string(),
-            namespace: res.get("namespace").unwrap().to_string(),
-            content: res.get("content").unwrap().to_string().into(),
-            timestamp: res.get("date_published").unwrap().parse::<u128>().unwrap(),
-            metadata: match serde_json::from_str(res.get("metadata").unwrap()) {
-                Ok(m) => m,
-                Err(_) => return Err(PasteError::ValueError),
-            },
-        };
-
-        // store in cache
-        self.base
-            .cachedb
-            .set(
-                format!("se_document:{}:{}", namespace, id),
-                serde_json::to_string::<Document<T, M>>(&doc).unwrap(),
-            )
-            .await;
-
-        // return
-        Ok(doc)
-    }
-
-    /// Create a a new document
-    ///
-    /// Making sure values are unique should be done before calling `push`.
-    ///
-    /// ## Arguments:
-    /// * `props` - [`DocumentCreate`]
-    ///
-    /// ## Returns:
-    /// * Full [`Document`]
-    pub async fn push<T: ToString, M: Serialize>(
-        &self,
-        props: DocumentCreate<T, M>,
-    ) -> Result<Document<T, M>> {
-        if self.options.document_store == false {
-            return Err(PasteError::Other);
-        }
-
-        // ...
-        let doc = Document {
-            id: utility::random_id(),
-            namespace: props.namespace,
-            content: props.content,
-            timestamp: utility::unix_epoch_timestamp(),
-            metadata: props.metadata,
-        };
-
-        // create paste
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "INSERT INTO \"se_documents\" VALUES (?, ?, ?, ?, ?)"
-        } else {
-            "INSERT INTO \"se_documents\" VALEUS ($1, $2, $3, $4, $5)"
-        };
-
-        let c = &self.base.db.client;
-        match sqlquery(query)
-            .bind::<&String>(&doc.id)
-            .bind::<&String>(&doc.namespace)
-            .bind::<&String>(&doc.content.to_string())
-            .bind::<&String>(&doc.timestamp.to_string())
-            .bind::<&String>(match serde_json::to_string(&doc.metadata) {
-                Ok(ref s) => s,
-                Err(_) => return Err(PasteError::ValueError),
-            })
-            .execute(c)
-            .await
-        {
-            Ok(_) => return Ok(doc),
-            Err(_) => return Err(PasteError::Other),
-        };
-    }
-
-    /// Delete an existing document by `id`
-    ///
-    /// Permission checks should be done before calling `drop`.
-    ///
-    /// ## Arguments:
-    /// * `id` - the document to delete
-    /// * `namespace` - the namespace the document belongs to
-    pub async fn drop<
-        T: Serialize + DeserializeOwned + From<String>,
-        M: Serialize + DeserializeOwned,
-    >(
-        &self,
-        id: String,
-        namespace: String,
-    ) -> Result<()> {
-        if self.options.document_store == false {
-            return Err(PasteError::Other);
-        }
-
-        // make sure document exists
-        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
-            return Err(e);
-        };
-
-        // delete document
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "DELETE FROM \"se_documents\" WHERE \"id\" = ? AND \"namespace\" = ?"
-        } else {
-            "DELETE FROM \"se_documents\" WHERE \"id\" = $1 AND \"namespace\" = $2"
-        };
-
-        let c = &self.base.db.client;
-        match sqlquery(query)
-            .bind::<&String>(&id)
-            .bind::<&String>(&namespace)
-            .execute(c)
-            .await
-        {
-            Ok(_) => {
-                // remove from cache
-                self.base
-                    .cachedb
-                    .remove(format!("se_document:{}:{}", namespace, id))
-                    .await;
-
-                // return
-                return Ok(());
-            }
-            Err(_) => return Err(PasteError::Other),
-        };
-    }
-
-    /// Edit an existing document by `id`
-    ///
-    /// Permission checks should be done before calling `update`.
-    ///
-    /// ## Arguments:
-    /// * `id` - the document to edit
-    /// * `namespace` - the namespace the document belongs to
-    /// * `new_content` - the new content of the paste
-    pub async fn update<
-        T: Serialize + DeserializeOwned + From<String> + ToString,
-        M: Serialize + DeserializeOwned,
-    >(
-        &self,
-        id: String,
-        namespace: String,
-        new_content: String,
-    ) -> Result<()> {
-        if self.options.document_store == false {
-            return Err(PasteError::Other);
-        }
-
-        // make sure document exists
-        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
-            return Err(e);
-        };
-
-        // edit document
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"se_pastes\" SET \"content\" = ? WHERE \"url\" = ? AND \"namespace\" = ?"
-        } else {
-            "UPDATE \"se_pastes\" SET \"content\" = $1 WHERE \"url\" = $2 AND \"namespace\" = $3"
-        };
-
-        let c = &self.base.db.client;
-        match sqlquery(query)
-            .bind::<&String>(&new_content.to_string())
-            .bind::<&String>(&id)
-            .bind::<&String>(&namespace)
-            .execute(c)
-            .await
-        {
-            Ok(_) => {
-                // remove from cache
-                self.base
-                    .cachedb
-                    .remove(format!("se_document:{}:{}", namespace, id))
-                    .await;
-
-                // return
-                return Ok(());
-            }
-            Err(_) => return Err(PasteError::Other),
-        };
-    }
-
-    /// Edit an existing paste's metadata by `url`
-    ///
-    /// Permission checks should be done before calling `update`.
-    ///
-    /// ## Arguments:
-    /// * `id` - the document to edit
-    /// * `namespace` - the namespace the document belongs to    
-    /// * `metadata` - the new metadata of the document
-    pub async fn update_metadata<
-        T: Serialize + DeserializeOwned + From<String> + ToString,
-        M: Serialize + DeserializeOwned,
-    >(
-        &self,
-        id: String,
-        namespace: String,
-        metadata: PasteMetadata,
-    ) -> Result<()> {
-        if self.options.document_store == false {
-            return Err(PasteError::Other);
-        }
-
-        // make sure document exists
-        if let Err(e) = self.pull::<T, M>(id.clone(), namespace.clone()).await {
-            return Err(e);
-        };
-
-        // edit document
-        let query: &str = if (self.base.db._type == "sqlite") | (self.base.db._type == "mysql") {
-            "UPDATE \"se_documents\" SET \"metadata\" = ? WHERE \"url\" = ? AND \"namespace\" = ?"
-        } else {
-            "UPDATE \"se_documents\" SET \"metadata\" = $1 WHERE \"url\" = $2 AND \"namespace\" = $3"
-        };
-
-        let c = &self.base.db.client;
-        match sqlquery(query)
-            .bind::<&String>(match serde_json::to_string(&metadata) {
-                Ok(ref m) => m,
-                Err(_) => return Err(PasteError::ValueError),
-            })
-            .bind::<&String>(&id)
-            .bind::<&String>(&namespace)
-            .execute(c)
-            .await
-        {
-            Ok(_) => {
-                // remove from cache
-                self.base
-                    .cachedb
-                    .remove(format!("se_document:{}:{}", namespace, id))
-                    .await;
-
-                // return
-                return Ok(());
-            }
-            Err(_) => return Err(PasteError::Other),
-        };
     }
 }

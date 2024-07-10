@@ -1,5 +1,7 @@
 //! Responds to API requests
-use crate::model::{PasteCreate, PasteDelete, PasteEdit, PasteError, PasteEditMetadata, Paste};
+use crate::model::{
+    PasteCreate, PasteDelete, PasteEdit, PasteError, PasteEditMetadata, Paste, PublicPaste,
+};
 use crate::database::Database;
 use dorsal::DefaultReturn;
 
@@ -163,12 +165,12 @@ async fn edit_paste_metadata_by_url(
 pub async fn get_paste_by_url(
     State(database): State<Database>,
     Path(url): Path<String>,
-) -> Result<Json<DefaultReturn<Paste>>, PasteError> {
+) -> Result<Json<DefaultReturn<PublicPaste>>, PasteError> {
     match database.get_paste_by_url(url).await {
         Ok(p) => Ok(Json(DefaultReturn {
             success: true,
             message: String::from("Paste exists"),
-            payload: p,
+            payload: p.into(),
         })),
         Err(e) => Err(e),
     }

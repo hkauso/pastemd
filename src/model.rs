@@ -54,16 +54,25 @@ impl Default for PasteMetadata {
     }
 }
 
-/// Basic serialized content storage for extra features that don't need their own table
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Document<T, M> {
-    // identifiers
-    pub id: String,
-    pub namespace: String,
-    // document;
-    pub content: T,
-    pub timestamp: u128,
-    pub metadata: M,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublicPaste {
+    pub url: String,
+    pub content: String,
+    pub date_published: u128,
+    pub date_edited: u128,
+    pub metadata: PasteMetadata,
+}
+
+impl From<Paste> for PublicPaste {
+    fn from(value: Paste) -> Self {
+        Self {
+            url: value.url,
+            content: value.content,
+            date_published: value.date_published,
+            date_edited: value.date_edited,
+            metadata: value.metadata,
+        }
+    }
 }
 
 // props
@@ -96,13 +105,6 @@ pub struct PasteEdit {
 pub struct PasteEditMetadata {
     pub password: String,
     pub metadata: PasteMetadata,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DocumentCreate<T, M> {
-    pub namespace: String,
-    pub content: T,
-    pub metadata: M,
 }
 
 /// General API errors
