@@ -167,11 +167,17 @@ pub async fn get_paste_by_url(
     Path(url): Path<String>,
 ) -> Result<Json<DefaultReturn<PublicPaste>>, PasteError> {
     match database.get_paste_by_url(url).await {
-        Ok(p) => Ok(Json(DefaultReturn {
-            success: true,
-            message: String::from("Paste exists"),
-            payload: p.into(),
-        })),
+        Ok(p) => {
+            if !p.metadata.view_password.is_empty() {
+                Err(PasteError::Other)
+            }
+
+            Ok(Json(DefaultReturn {
+                success: true,
+                message: String::from("Paste exists"),
+                payload: p.into(),
+            }))
+        }
         Err(e) => Err(e),
     }
 }
