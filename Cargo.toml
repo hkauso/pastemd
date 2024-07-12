@@ -4,7 +4,7 @@ description = "Pluggable pastebin backend"
 authors = ["hkau"]
 license = "MIT"
 
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 
 documentation = "https://docs.rs/pastemd"
@@ -16,10 +16,10 @@ features = ["sqlite"]
 no-default-features = true
 
 [features]
-postgres = ["dorsal/postgres"]
-mysql = ["dorsal/mysql"]
-sqlite = ["dorsal/sqlite"]
-# default = ["dorsal/sqlite"] # for development
+postgres = ["dorsal/postgres", "starstraw/postgres"]
+mysql = ["dorsal/mysql", "starstraw/mysql"]
+sqlite = ["dorsal/sqlite", "starstraw/sqlite"]
+default = ["dorsal/sqlite", "starstraw/sqlite"] # for development
 
 [dependencies]
 axum = "0.7.5"
@@ -32,3 +32,4 @@ dotenv = "0.15.0"
 regex = "1.10.5"
 idna = "1.0.0"
 axum-extra = { version = "0.9.3", features = ["cookie"] }
+starstraw = { version = "0.1.0", default-features = false }

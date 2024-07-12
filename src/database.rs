@@ -2,7 +2,8 @@ use crate::model::{PasteCreate, PasteError, Paste, PasteMetadata};
 
 use dorsal::utility;
 use dorsal::query as sqlquery;
-use dorsal::db::special::auth_db::{FullUser, UserMetadata};
+use starstraw::model::Profile;
+use starstraw::model::SkillManager;
 
 pub type Result<T> = std::result::Result<T, PasteError>;
 
@@ -76,9 +77,9 @@ impl Default for ViewsTableConfig {
 pub struct ServerOptions {
     /// If pastes can require a password to be viewed
     pub view_password: bool,
-    /// If authentication through guppy is enabled
-    pub guppy: bool,
-    /// If pastes can have a owner username (guppy required)
+    /// If authentication through [starstraw](https://docs.rs/starstraw) is enabled
+    pub starstraw: bool,
+    /// If pastes can have a owner username (starstraw required)
     pub paste_ownership: bool,
     /// View mode options
     pub view_mode: ViewMode,
@@ -93,7 +94,7 @@ impl ServerOptions {
     pub fn truthy() -> Self {
         Self {
             view_password: true,
-            guppy: true,
+            starstraw: true,
             paste_ownership: true,
             view_mode: ViewMode::OpenMultiple,
             table_pastes: PastesTableConfig::default(),
@@ -106,7 +107,7 @@ impl Default for ServerOptions {
     fn default() -> Self {
         Self {
             view_password: false,
-            guppy: false,
+            starstraw: false,
             paste_ownership: false,
             view_mode: ViewMode::OpenMultiple,
             table_pastes: PastesTableConfig::default(),
@@ -119,17 +120,19 @@ impl Default for ServerOptions {
 #[derive(Clone)]
 pub struct Database {
     pub base: dorsal::StarterDatabase,
-    pub auth: dorsal::AuthDatabase,
+    pub auth: starstraw::Database,
     pub options: ServerOptions,
 }
 
 impl Database {
     pub async fn new(opts: dorsal::DatabaseOpts, opts1: ServerOptions) -> Self {
-        let base = dorsal::StarterDatabase::new(opts).await;
-
         Self {
-            base: base.clone(),
-            auth: dorsal::AuthDatabase::new(base).await,
+            base: dorsal::StarterDatabase::new(opts).await,
+            auth: starstraw::Database::new(
+                starstraw::Database::env_options(),
+                starstraw::ServerOptions::truthy(),
+            )
+            .await,
             options: opts1,
         }
     }
@@ -440,7 +443,7 @@ impl Database {
         new_content: String,
         mut new_url: String,
         mut new_password: String,
-        editing_as: Option<FullUser<UserMetadata>>,
+        editing_as: Option<Profile>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
@@ -459,11 +462,11 @@ impl Database {
 
         if let Some(ua) = editing_as {
             // check if we're the paste owner
-            if ua.user.username == existing.metadata.owner {
+            if ua.username == existing.metadata.owner {
                 skip_password_check = true;
             }
-            // check if we have the "ManagePastes" permission
-            else if ua.level.permissions.contains(&"ManagePastes".to_string()) {
+            // check if we have the "Absolute" ability
+            else if SkillManager(ua.skills).has_skill(starstraw::model::SkillName::Absolute) {
                 skip_password_check = true;
             }
         }
@@ -541,7 +544,7 @@ impl Database {
         mut url: String,
         password: String,
         metadata: PasteMetadata,
-        editing_as: Option<FullUser<UserMetadata>>,
+        editing_as: Option<Profile>,
     ) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
@@ -560,11 +563,11 @@ impl Database {
 
         if let Some(ua) = editing_as {
             // check if we're the paste owner
-            if ua.user.username == existing.metadata.owner {
+            if ua.username == existing.metadata.owner {
                 skip_password_check = true;
             }
-            // check if we have the "ManagePastes" permission
-            else if ua.level.permissions.contains(&"ManagePastes".to_string()) {
+            // check if we have the "Absolute" ability
+            else if SkillManager(ua.skills).has_skill(starstraw::model::SkillName::Absolute) {
                 skip_password_check = true;
             }
         }
@@ -675,11 +678,7 @@ impl Database {
     /// ## Arguments:
     /// * `url` - the paste to count the view for
     /// * `as_user` - the userstate of the user viewing this (for [`ViewMode::AuthenticatedOnce`])
-    pub async fn incr_views_by_url(
-        &self,
-        mut url: String,
-        as_user: Option<FullUser<UserMetadata>>,
-    ) -> Result<()> {
+    pub async fn incr_views_by_url(&self, mut url: String, as_user: Option<Profile>) -> Result<()> {
         url = idna::punycode::encode_str(&url).unwrap().to_lowercase();
 
         if url.ends_with("-") {
@@ -692,7 +691,7 @@ impl Database {
                 Some(ua) => {
                     // check for view
                     if self
-                        .user_has_viewed_paste(url.clone(), ua.user.username.clone())
+                        .user_has_viewed_paste(url.clone(), ua.username.clone())
                         .await
                     {
                         // can only view once in this mode
@@ -712,7 +711,7 @@ impl Database {
                     let c = &self.base.db.client;
                     match sqlquery(&query)
                         .bind::<&String>(&url)
-                        .bind::<&String>(&ua.user.username)
+                        .bind::<&String>(&ua.username)
                         .execute(c)
                         .await
                     {
